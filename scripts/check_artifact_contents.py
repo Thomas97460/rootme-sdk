@@ -10,8 +10,11 @@ def contents(artifact: Path) -> dict[str, bytes]:
     """Read regular archive members without writing untrusted paths to disk."""
     if artifact.suffix == ".whl":
         with ZipFile(artifact) as archive:
+            # orig_filename preserves separators/NULs that ZipInfo normalizes on Windows.
             return {
-                name: archive.read(name) for name in archive.namelist() if not name.endswith("/")
+                member.orig_filename: archive.read(member)
+                for member in archive.infolist()
+                if not member.is_dir()
             }
     with tarfile.open(artifact) as archive:
         result = {}
@@ -30,7 +33,7 @@ def validate(artifact: Path, version: str) -> None:
     files = contents(artifact)
     for name in files:
         path = PurePosixPath(name)
-        if path.is_absolute() or ".." in path.parts or "\\" in name:
+        if path.is_absolute() or ".." in path.parts or "\\" in name or "\0" in name:
             raise ValueError("Unsafe archive path.")
         # Hatch includes this public VCS ignore file in source archives by default.
         if artifact.suffix != ".whl" and len(path.parts) == 2 and path.name == ".gitignore":

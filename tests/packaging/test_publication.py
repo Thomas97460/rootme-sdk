@@ -2,7 +2,7 @@ import hashlib
 import io
 import tarfile
 from pathlib import Path
-from zipfile import ZipFile
+from zipfile import ZipFile, ZipInfo
 
 import httpx
 import pytest
@@ -23,7 +23,9 @@ def wheel(tmp_path: Path, *, extra: str | None = None, version: str = "0.3.0") -
             "License-Expression: MIT\nLicense-File: LICENSE\n",
         )
         if extra:
-            archive.writestr(extra, "synthetic")
+            member = ZipInfo()
+            member.filename = extra
+            archive.writestr(member, "synthetic")
     return artifact
 
 
@@ -66,7 +68,7 @@ def test_source_archive_and_symlink_guard(tmp_path: Path) -> None:
         contents(artifact)
 
 
-def test_source_archive_keeps_public_ignore_file_but_not_nested_secrets(tmp_path: Path) -> None:
+def test_source_archive_keeps_public_vcs_ignore_file(tmp_path: Path) -> None:
     artifact = wheel(tmp_path)
     source = tmp_path / "source.tar.gz"
     with ZipFile(artifact) as wheel_archive, tarfile.open(source, "w:gz") as source_archive:

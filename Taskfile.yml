@@ -19,7 +19,7 @@ tasks:
   audit:
     cmds:
       - uv export --locked --no-dev --no-emit-project --no-hashes -o .audit-requirements.txt
-      - defer: rm -f .audit-requirements.txt
+      - defer: uv run python -c 'from pathlib import Path; Path(".audit-requirements.txt").unlink(missing_ok=True)'
       - uv run pip-audit --strict --disable-pip --no-deps -r .audit-requirements.txt
   secrets:
     cmds: [gitleaks git --redact --no-banner --log-opts=--all]
