@@ -111,7 +111,10 @@ class BrowserSession:
             if self._authenticated():
                 return self.session
             self.page.wait_for_timeout(250)
-        raise AuthenticationRequiredError("Browser login did not produce a session before timeout.")
+        raise AuthenticationRequiredError(
+            "Browser login did not produce an authenticated session before timeout.",
+            reason="rejected" if username is not None else "missing",
+        )
 
     def _authenticated(self) -> bool:
         """Require both a current cookie and the observed authenticated account menu."""

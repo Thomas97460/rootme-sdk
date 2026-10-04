@@ -133,6 +133,18 @@ def test_manual_login_timeout_and_human_verification(
     adapter.close()
 
 
+def test_supplied_credentials_timeout_reports_rejected_authentication(
+    engine: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter = BrowserSession(Session(), timeout=1)
+    times = iter([0, 2])
+    monkeypatch.setattr("rootme_sdk.authentication.browser.monotonic", lambda: next(times))
+    with pytest.raises(AuthenticationRequiredError) as failure:
+        adapter.authenticate("Example", "synthetic-password")
+    assert failure.value.reason == "rejected"
+    adapter.close()
+
+
 def test_browser_mutation_encoding_redirection_and_network_errors(engine: MagicMock) -> None:
     adapter = BrowserSession(Session())
     adapter.context.cookies.return_value = [cookie()]
