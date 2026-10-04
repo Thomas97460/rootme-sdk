@@ -1,0 +1,62 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rootme-sdk"
+version = "0.1.0"
+description = "Typed Python client for the Root-Me platform"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+dependencies = ["httpx>=0.28,<1", "beautifulsoup4>=4.13,<5"]
+
+[project.urls]
+Repository = "https://github.com/Thomas97460/rootme-sdk"
+
+[project.optional-dependencies]
+browser = ["playwright>=1.55,<2"]
+
+[dependency-groups]
+dev = ["ruff>=0.14", "mypy>=1.18", "pytest>=8.4", "pytest-cov>=7", "interrogate>=1.7", "twine>=6"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rootme_sdk"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "N", "D", "ANN"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Test names describe contracts; docstring coverage applies to the SDK.
+"tests/**" = ["D"]
+# This file only re-exports the public API, as required by AGENTS.md.
+"src/rootme_sdk/**/__init__.py" = ["D104"]
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+files = ["src/rootme_sdk"]
+
+[tool.interrogate]
+fail-under = 100
+ignore-init-module = true
+ignore-magic = false
+exclude = ["tests", ".venv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+source = ["rootme_sdk"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
