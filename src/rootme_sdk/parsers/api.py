@@ -6,7 +6,7 @@ from typing import cast
 from bs4 import BeautifulSoup
 
 from ..errors import AuthenticationRequiredError, PermissionDeniedError, UnexpectedResponseError
-from ..models import Challenge, Environment, JSONObject, JSONValue, RankingEntry, UserProfile
+from ..models import Challenge, JSONObject, JSONValue, UserProfile
 
 
 def json_payload(content: str) -> JSONValue:
@@ -87,17 +87,3 @@ def user(data: JSONObject, *, identifier: int | None = None) -> UserProfile:
         integer(data, "position"),
         data,
     )
-
-
-def environment(data: JSONObject, *, identifier: int | None = None) -> Environment:
-    """Build an environment while preserving undocumented details as data."""
-    return Environment(
-        integer(data, "id_environnement_virtuel") or identifier, text(data, "nom"), data
-    )
-
-
-def ranking(data: JSONObject) -> RankingEntry:
-    """Read a ranking row with all documented fields required."""
-    position, score = integer(data, "place", required=True), integer(data, "score", required=True)
-    assert position is not None and score is not None
-    return RankingEntry(position, text(data, "nom"), score)

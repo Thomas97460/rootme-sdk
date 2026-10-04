@@ -2,9 +2,7 @@ from rootme_sdk import (
     Category,
     Challenge,
     Collection,
-    Environment,
     FormField,
-    RankingEntry,
     Resource,
     SubmissionResult,
     SubmissionStatus,
@@ -19,8 +17,6 @@ def test_public_typed_results_and_redacted_repr() -> None:
     resource = Resource("https://www.root-me.org/file", "File")
     assert Challenge(7, "Example", resources=(resource,)).resources == (resource,)
     assert Category("Example", resource.url).title == "Example"
-    assert Environment(1, "Example", {}).data == {}
-    assert RankingEntry(1, "Example", 10).score == 10
     assert UserProfile(1, "Example", 10, 1, {}).position == 1
     collection = Collection((resource,), None)
     assert collection.items == (resource,) and collection.next_url is None

@@ -21,10 +21,8 @@ from .models import (
     Category,
     Challenge,
     Collection,
-    Environment,
     JSONObject,
     JSONValue,
-    RankingEntry,
     Resource,
     SubmissionResult,
     SubmissionStatus,
@@ -47,7 +45,6 @@ class RootMeClient:
     def __init__(
         self,
         *,
-        api_key: str | None = None,
         spip_session: str | None = None,
         session: Session | None = None,
         transport: httpx.BaseTransport | None = None,
@@ -55,11 +52,11 @@ class RootMeClient:
         read_retries: int = 1,
         max_retry_delay: float = 5,
     ) -> None:
-        """Accept API credentials or reusable state; construction performs no requests."""
-        if session is not None and (api_key is not None or spip_session is not None):
+        """Accept a reusable login session; construction performs no requests."""
+        if session is not None and spip_session is not None:
             raise ValueError("Supply a session or credentials, not both.")
         cookies = (SessionCookie("spip_session", spip_session),) if spip_session else ()
-        self.session = session or Session(api_key, cookies)
+        self.session = session or Session(cookies=cookies)
         self._transport = Transport(
             self.session,
             transport=transport,
@@ -98,7 +95,6 @@ class RootMeClient:
     ) -> Session:
         """Log in with an in-memory password or local secret file, optionally using JS."""
         secret = _password(username, password, password_file)
-        self.session.api_key = None
         self.session.cookies = tuple(c for c in self.session.cookies if c.name != "spip_session")
         if browser:
             return self.open_browser(
@@ -143,7 +139,7 @@ class RootMeClient:
             if self.session.spip_session:
                 self._transport.request("GET", f"{WEB_URL}/?action=logout", mutation=True)
         finally:
-            self.session.api_key, self.session.cookies = None, ()
+            self.session.cookies = ()
             if self._transport.browser:
                 self._transport.browser.close()
                 self._transport.browser = None
@@ -151,7 +147,7 @@ class RootMeClient:
     def get_challenge(self, reference: int | str) -> Challenge:
         """Read API metadata by ID, or a complete web challenge by its URL."""
         if isinstance(reference, str):
-            return web.challenge_page(self.get_page(reference))
+            return web.challenge_page(self._get_page(reference))
         _identifier(reference)
         data = self._one(f"/challenges/{reference}")
         return api.challenge(data, identifier=reference)
@@ -159,7 +155,7 @@ class RootMeClient:
     def read_challenge(self, reference: int | str) -> Challenge:
         """Read the statement and resources, resolving an API ID to its actual URL."""
         url = self._challenge_url(reference)
-        return web.challenge_page(self.get_page(url))
+        return web.challenge_page(self._get_page(url))
 
     def list_challenges(
         self,
@@ -183,62 +179,15 @@ class RootMeClient:
         """Iterate server-provided catalogue pages using native API filter names."""
         yield from self._iterate(f"{API_URL}/challenges", api.challenge, filters)
 
-    def list_users(
-        self, *, name: str | None = None, status: str | None = None, language: str | None = None
-    ) -> Collection[UserProfile]:
-        """List users with the documented name, status and language filters."""
-        return self._collection(
-            f"{API_URL}/auteurs",
-            api.user,
-            _query({"nom": name, "statut": status, "lang": language}),
-        )
-
     def get_user(self, identifier: int) -> UserProfile:
         """Read a profile, including the platform's solved-challenge data."""
         _identifier(identifier)
         return api.user(self._one(f"/auteurs/{identifier}"), identifier=identifier)
 
-    def iter_users(self, **filters: str | int) -> Iterator[UserProfile]:
-        """Iterate all server-provided user pages using native API filter names."""
-        yield from self._iterate(f"{API_URL}/auteurs", api.user, filters)
-
-    def ranking(self, *, offset: int = 0) -> Collection[RankingEntry]:
-        """Read a ranking page starting at the documented offset."""
-        if offset < 0:
-            raise ValueError("Ranking offset must be nonnegative.")
-        return self._collection(f"{API_URL}/classement", api.ranking, {"debut_classement": offset})
-
-    def list_environments(
-        self, *, name: str | None = None, operating_system: str | None = None
-    ) -> Collection[Environment]:
-        """List virtual environments using documented filters."""
-        return self._collection(
-            f"{API_URL}/environnements_virtuels",
-            api.environment,
-            _query({"nom": name, "os": operating_system}),
-        )
-
-    def iter_environments(self, **filters: str | int) -> Iterator[Environment]:
-        """Iterate the server's virtual-environment pages without guessed offsets."""
-        yield from self._iterate(f"{API_URL}/environnements_virtuels", api.environment, filters)
-
-    def iter_ranking(self, *, offset: int = 0) -> Iterator[RankingEntry]:
-        """Iterate ranking pages from a nonnegative initial position."""
-        if offset < 0:
-            raise ValueError("Ranking offset must be nonnegative.")
-        yield from self._iterate(f"{API_URL}/classement", api.ranking, {"debut_classement": offset})
-
-    def get_environment(self, identifier: int) -> Environment:
-        """Read the available details of one virtual environment."""
-        _identifier(identifier)
-        return api.environment(
-            self._one(f"/environnements_virtuels/{identifier}"), identifier=identifier
-        )
-
     def list_categories(self, *, language: str = "en") -> tuple[Category, ...]:
         """Discover category links from the live challenge catalogue."""
         _language(language)
-        document = self.get_page(f"{WEB_URL}/{language}/Challenges/")
+        document = self._get_page(f"{WEB_URL}/{language}/Challenges/")
         prefix = f"/{language}/Challenges/"
         return tuple(
             Category(link.label, link.url)
@@ -250,12 +199,12 @@ class RootMeClient:
             and link.label
         )
 
-    def get_page(self, url: str) -> WebPage:
+    def _get_page(self, url: str) -> WebPage:
         """Read an anonymous or authenticated page and discover its forms and links."""
         if urlsplit(platform_url(url)).hostname != WEB_HOST:
             raise ValueError("Website pages must use the website host.")
         if "action" in parse_qs(urlsplit(url).query):
-            raise ValueError("Use perform_action explicitly for website action links.")
+            raise ValueError("Action links cannot be used for page reads.")
         response = self._transport.request("GET", url)
         return web.page(response.text, str(response.url))
 
@@ -264,7 +213,7 @@ class RootMeClient:
         _language(language)
         if not self.session.spip_session:
             raise AuthenticationRequiredError("Preferences require a web session.")
-        document = self.get_page(f"{WEB_URL}/?page=preferences&lang={language}")
+        document = self._get_page(f"{WEB_URL}/?page=preferences&lang={language}")
         _find_form(document, "modifier_auteur")
         return document
 
@@ -273,9 +222,9 @@ class RootMeClient:
     ) -> WebPage:
         """Explicitly update fields exposed by the verified modifier_auteur form."""
         form = _find_form(self.preferences(), "modifier_auteur")
-        return self.submit_form(form, changes, files=files)
+        return self._submit_form(form, changes, files=files)
 
-    def submit_form(
+    def _submit_form(
         self,
         form: WebForm,
         changes: Mapping[str, str],
@@ -283,7 +232,7 @@ class RootMeClient:
         files: Mapping[str, Upload] | None = None,
     ) -> WebPage:
         """Refresh tokens and submit one explicitly chosen form, including file uploads."""
-        current = _find_form(self.get_page(form.page_url), form.name)
+        current = _find_form(self._get_page(form.page_url), form.name)
         values = web.form_values(current, changes)
         allowed = {f.name for f in current.fields if f.kind == "file"}
         if files and not set(files).issubset(allowed):
@@ -307,25 +256,18 @@ class RootMeClient:
         """Submit exactly once and report uncertainty rather than replaying an answer."""
         if not answer:
             raise ValueError("An answer must be nonempty.")
-        document = self.get_page(self._challenge_url(reference))
+        document = self._get_page(self._challenge_url(reference))
         known = web.submission_result(document, answer)
         if known.status == SubmissionStatus.ALREADY_SOLVED:
             return known
         form = _find_form(document, "validation_challenge")
         try:
-            result = self.submit_form(form, {"passe": answer})
+            result = self._submit_form(form, {"passe": answer})
         except RateLimitedError as error:
             return SubmissionResult(SubmissionStatus.BLOCKED, retry_after=error.retry_after)
         except (NetworkError, UnexpectedResponseError):
             return SubmissionResult(SubmissionStatus.INDETERMINATE)
         return web.submission_result(result, answer)
-
-    def perform_action(self, url: str) -> WebPage:
-        """Explicitly follow a platform action link without retrying its GET mutation."""
-        if urlsplit(platform_url(url)).hostname != WEB_HOST:
-            raise ValueError("Action links must use the website host.")
-        response = self._transport.request("GET", url, authenticated=True, mutation=True)
-        return web.page(response.text, str(response.url))
 
     def download(self, resource: Resource | str, destination: str | Path | None = None) -> bytes:
         """Download a public HTTPS attachment without account credentials."""
@@ -347,9 +289,9 @@ class RootMeClient:
 
     def _http_login(self, username: str, password: str) -> Session:
         """Verify password authentication against the returned account menu."""
-        document = self.get_page(f"{WEB_URL}/?page=login&lang=en")
+        document = self._get_page(f"{WEB_URL}/?page=login&lang=en")
         form = _find_form(document, "login")
-        result = self.submit_form(form, {"var_login": username, "password": password})
+        result = self._submit_form(form, {"var_login": username, "password": password})
         logged_in = any(
             parse_qs(urlsplit(link.url).query).get("action") == ["logout"] for link in result.links
         )

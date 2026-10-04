@@ -9,7 +9,7 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 
-from .authentication.session import API_HOST, WEB_HOST, Session, SessionCookie
+from .authentication.session import WEB_HOST, Session, SessionCookie
 from .errors import (
     AuthenticationRequiredError,
     HumanInterventionRequiredError,
@@ -101,7 +101,7 @@ class Transport:
     ) -> httpx.Response:
         """Request a platform page, following safe redirects without replaying writes."""
         platform_url(url)
-        self._require_auth(url, authenticated)
+        self._require_auth(authenticated)
         for _ in range(6):
             response = self._read_retry(method, url, data, params, files, mutation)
             self._remember(response)
@@ -130,12 +130,11 @@ class Transport:
             url = urljoin(str(response.url), response.headers.get("location", ""))
         raise UnexpectedResponseError("Resource redirect limit exceeded.")
 
-    def _require_auth(self, url: str, required: bool) -> None:
+    def _require_auth(self, required: bool) -> None:
         """Reject missing credentials before an authenticated operation."""
         if not required:
             return
-        api = urlsplit(url).hostname == API_HOST
-        if not self.session.spip_session and not (api and self.session.api_key):
+        if not self.session.spip_session:
             expired = any(c.name == "spip_session" for c in self.session.cookies)
             raise AuthenticationRequiredError(
                 "This operation requires account authentication.",

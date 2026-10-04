@@ -4,7 +4,9 @@
 
 Build the Python library described in [REQUIREMENTS.md](REQUIREMENTS.md). Keep it
 small; do not add a server, solver or unrelated application. Choose implementation
-details from verified platform behavior rather than guessed endpoints.
+details from verified platform behavior rather than guessed endpoints. Scope is
+accounts and challenges, with password/session authentication; do not add API-key
+authentication, messaging, community or virtual-environment management.
 
 Write repository content in English: code, comments, documentation, commits and
 PRs. Speak French with the maintainer. Never add `Co-Authored-By` or other
@@ -100,22 +102,23 @@ authorship trailers to commits.
 
 ## Releases
 
-- Distribution is a Python wheel and source archive published to PyPI and
-  attached to a GitHub Release. Merging to `main` does not publish a release.
+- Distribution is a wheel and source archive attached to a private GitHub
+  Release. PyPI publication is deferred and disabled unless explicitly enabled
+  with publisher permissions. Merging to `main` does not publish a release.
   Do not add PyInstaller binaries or Nix packaging.
 - Bump `[project].version` in `pyproject.toml` through a normal PR **before**
   tagging. Tag the corresponding validated commit on `main` as `vX.Y.Z`; the
   tag, package metadata and artifact versions must agree.
 - **Never push a release tag or publish a version without explicit human opt-in
   in the current conversation.** Approval of a release tag authorizes both
-  GitHub and PyPI publication for that version, without a second approval.
+  all currently enabled publication destinations, without a second approval.
   Never move or delete an existing release tag.
 - The tag-triggered workflow builds and checks the wheel/source archive from
-  that commit, then publishes the same artifacts to both destinations. Configure
-  publishing authentication securely; never commit tokens. Confirm PyPI project
-  ownership/name availability and required permissions before the first release.
-- Watch the workflow to completion. Verify both GitHub assets, the PyPI version
-  and installation/import from the published package in a clean environment;
+  that commit, then publishes those artifacts to enabled destinations. Configure
+  authentication securely; never commit tokens. Confirm PyPI ownership/name
+  availability and permissions before enabling its first publication.
+- Watch the workflow to completion. Verify both GitHub assets and clean artifact
+  installation/import, plus the PyPI version/install when publishing is enabled;
   a successful tag push is not completion.
 - Fix failed releases through the normal workflow. Roll forward with a new
   version and tag; consumers can pin a previous known-good version. Never rewrite

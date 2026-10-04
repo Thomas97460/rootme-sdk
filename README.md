@@ -1,125 +1,105 @@
 # rootme-sdk
 
-A small, typed Python client for [Root-Me](https://www.root-me.org/): official API
-reads, reusable authentication, optional browser assistance, challenge statements,
-answer submission and the forms/actions actually offered to your account.
-It contains no challenge-solving logic. Python 3.13 and 3.14 are tested.
+A small, typed Python client for [Root-Me](https://www.root-me.org/): password
+login, reusable sessions, account information/preferences, challenge discovery,
+statements, attachments and answer submission. Python 3.13 and 3.14 are tested.
 
 ## Install
 
-From a published release:
+The repository and GitHub releases are private; PyPI publication is deferred.
+Install the checkout, or a wheel downloaded from a GitHub release:
 
 ```bash
-pip install rootme-sdk
-# Only when browser assistance is needed:
-pip install 'rootme-sdk[browser]'
+pip install .
+# With optional browser assistance:
+pip install '.[browser]'
 python -m playwright install chromium
 ```
 
-Before the first release, install the checkout with `uv sync`. On NixOS, pass an
-installed browser path to `open_browser`/`login`, for example
-`executable_path="/run/current-system/sw/bin/google-chrome"`. The devShell provides
-the Node runtime and shared library needed by Playwright's Python driver.
+For development, use `uv sync --locked --extra browser`. On NixOS, pass an
+installed browser path, such as
+`executable_path="/run/current-system/sw/bin/google-chrome"`. The Nix devShell
+provides Playwright's required Node runtime and shared library.
 
-## API key: reads without a browser
-
-The [official API](https://api.www.root-me.org/?lang=en) accepts an `api_key` cookie
-or a `spip_session` cookie. Public data still requires API authentication.
+## Login and read
 
 ```python
-from pathlib import Path
 from rootme_sdk import RootMeClient
 
-key = Path(".secrets/rootme-api-key").read_text().strip()
-with RootMeClient(api_key=key) as client:
-    metadata = client.get_challenge(5)
-    for challenge in client.iter_challenges(lang="en", score=5):
-        print(challenge.title)
-    ranking = client.ranking().items
-```
-
-`get_challenge(id)` returns API metadata and any statement provided by the API;
-the live API may omit the statement. `read_challenge(id_or_url)` reads the actual
-web page. Lists return `Collection(items, next_url)`; `iter_*` follows the
-server's pagination lazily. Additional API fields stay available in `.data`.
-API keys are never inferred to grant website-writing permissions.
-
-## Password file or manual browser login
-
-```python
-from pathlib import Path
-from rootme_sdk import RootMeClient
-
-Path(".secrets").mkdir(mode=0o700, exist_ok=True)
 with RootMeClient() as client:
     client.login("your-login", password_file=".secrets/rootme-password", browser=True)
     client.session.save(".secrets/session.json")
+    challenge = client.read_challenge(5)
+    print(challenge.statement)
+    for item in client.iter_challenges(lang="en", score=5):
+        print(item.title)
 ```
 
-The secret file contains the password; one terminal newline is removed. Restrict
-it to your user (`chmod 600 .secrets/rootme-password`). Passwords are used for the
-login and never saved in `Session`. To log in manually instead, explicitly call
-`client.open_browser()` and use its isolated window. Neither ordinary API calls
-nor HTTP-only `login(...)` prompt on stdin or open a browser.
+The password file contains the password, with one terminal newline removed.
+Create `.secrets` with permissions 700 and the file with permissions 600.
+Alternatively, pass `password="..."` from your own credential loader. Session
+files contain cookies and no password. There is no API-key authentication.
 
-Browser assistance is explicit because the site's Anubis JavaScript verification
-may block plain HTTP even with a previously captured cookie. The client retains
-the browser for website requests while API requests stay on HTTP. You can request
-`headless=True` with supplied credentials; human verification may still be needed.
-For public pages requiring JS but no account, use
-`client.open_browser(authenticate=False)`.
+`login` uses ordinary HTTP by default. Root-Me's Anubis gate can require JavaScript;
+`browser=True` explicitly opens an isolated browser and fills the credentials.
+A fresh visible-browser login was verified without human input on 2026-10-04.
+The saved session then worked headlessly; a fresh headless login was blocked by
+Anubis in this environment. Human verification may still be necessary elsewhere.
 
-Manual verification on 2026-10-04 confirmed a fresh username/password login with
-`headless=False`, without human input, followed by authenticated preferences and
-challenge reads. The saved session then worked with `headless=True`. A fresh
-headless login was blocked by Anubis in this environment; unattended use can still
-need a visible browser window. Login waits for the authenticated account menu,
-not merely the presence of a session cookie.
+`get_challenge(id)` reads official API metadata through the authenticated session;
+`read_challenge(id_or_url)` reads the full website statement and resource links.
+`list_challenges` returns `Collection(items, next_url)`; `iter_challenges` follows
+server pagination lazily. Extra metadata stays available in `.data`.
+`list_categories(language="fr")` discovers website category links.
 
-## Reuse a session, read and submit
+For public website reads needing JavaScript, explicitly call
+`client.open_browser(authenticate=False)`. To authenticate manually, explicitly
+call `client.open_browser()`. Ordinary methods do not prompt or open a browser.
+
+## Reuse and submit
 
 ```python
 from pathlib import Path
 from rootme_sdk import RootMeClient, Session, SubmissionStatus
 
 with RootMeClient(session=Session.load(".secrets/session.json")) as client:
-    client.open_browser(headless=True)  # Explicitly reuse a browser when JS is needed.
+    client.open_browser(headless=True)
     challenge = client.read_challenge(5)
-    print(challenge.statement)
-    # Select the attachment you want from challenge.resources before downloading.
-    # client.download(attachment, "attachment.zip")
-    answer = Path("answer.txt").read_text().removesuffix("\n")
+    answer = Path(".secrets/answer.txt").read_text().removesuffix("\n")
     result = client.submit_answer(5, answer)
     if result.status == SubmissionStatus.INDETERMINATE:
         print("Inspect platform state before deliberately submitting again.")
 ```
 
-`get_page(url)` exposes readable text, links and `WebForm` objects for other
-account functions. `submit_form(form, changes, files=...)` refreshes the form's
-tokens before submitting; hidden controls cannot be overridden. `Upload` represents
-a file control. `preferences()` and `update_preferences(...)` cover the observed
-profile form. `perform_action(url)` explicitly invokes a discovered action link,
-including actions implemented by the website as GET requests.
+Results distinguish accepted, rejected, already solved, blocked and indeterminate.
+The client refreshes form tokens and submits once. Unknown responses and ambiguous
+failures remain indeterminate. Submission feedback is scoped to the challenge
+validation form and redacts the supplied answer.
 
-All writes require an explicit caller operation and are never automatically
-replayed. Public external downloads receive no account cookies; same-host
-attachments may use the web session. Closing a client releases its HTTP pool and
-optional browser. `logout()` requests server logout when possible and always
-clears local credentials.
+Select an attachment from `challenge.resources`, then use
+`client.download(attachment, "attachment.zip")`. Downloads to other hosts receive
+no account cookies. Closing the client releases its HTTP pool and browser.
+
+## Account
+
+`get_user(your_account_id)` returns account profile, score, position and additional
+API fields, including available validation entries in `.data`. These entries may
+be paginated by the platform. `preferences()` exposes the observed editable form;
+`update_preferences({"bio": "..."})` explicitly changes selected fields.
+`Upload` supports observed avatar/CV controls. Hidden form tokens cannot be
+changed by callers. `logout()` requests server logout and clears local state.
 
 ## Errors and verification
 
-Catch `RootMeError` or a specific exported error. `AuthenticationRequiredError`
-has a `reason` of `missing`, `expired` or `rejected`; rejected credentials can
-mean remote expiry or invalid/revoked credentials. `HumanInterventionRequiredError`
-provides a verification URL. `RateLimitedError.retry_after` carries the server's
-waiting interval. Timeouts and safe-read retry budgets are configurable.
+Catch `RootMeError` or an exported specific error. Authentication errors carry
+`reason`: missing, expired or rejected. Rejected credentials can indicate remote
+expiry or invalid credentials. `HumanInterventionRequiredError` carries a
+verification URL; `RateLimitedError.retry_after` carries the waiting interval.
+Reconnect explicitly using `login` when the current session is rejected.
 
-API reads through an authenticated session, automatic password login, browser
-challenge reading and preferences discovery were manually observed on 2026-10-04. Tests use synthetic
-fixtures with no live account. Real submissions, profile changes and other
-mutations have not been manually exercised. See [CAPABILITIES.md](CAPABILITIES.md)
-for the exact surface and remaining platform-specific limits.
+See [CAPABILITIES.md](CAPABILITIES.md) for observed behavior and limitations.
+Tests use synthetic fixtures and no live account. Account preference mutations
+have not been manually exercised.
 
 ## Development and releases
 
@@ -130,16 +110,12 @@ git config core.hooksPath .githooks
 task ci
 ```
 
-CI enforces Ruff formatting/lint, strict mypy, 100% SDK docstring coverage and
-100% unit coverage, plus offline scenarios and clean wheel/source installations.
-No Root-Me account, browser download or platform network access is needed for tests.
+CI enforces Ruff lint/format, strict mypy, 100% SDK docstrings and unit coverage,
+offline scenarios, and clean offline wheel/source installation checks.
+`authentication/` owns sessions and browser assistance; `parsers/` owns API JSON
+and website HTML. The public client coordinates them through the HTTP transport.
 
-`authentication/` owns session persistence and optional browser authentication;
-`parsers/` owns API JSON and website HTML interpretation. The public client
-coordinates those modules through the HTTP transport. Shared result models and
-errors remain at the package root, and consumers import through `rootme_sdk`.
-
-A human-approved `vX.Y.Z` tag publishes identical artifacts to GitHub and PyPI.
-Configure the PyPI Trusted Publisher first; see
-[CONTRIBUTING.md](CONTRIBUTING.md). [AGENTS.md](AGENTS.md) defines repository rules;
-[REQUIREMENTS.md](REQUIREMENTS.md) describes the intended scope.
+An approved `vX.Y.Z` tag publishes the wheel and source archive to a private GitHub
+release. PyPI remains disabled unless explicitly enabled after publisher setup.
+See [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md) and
+[REQUIREMENTS.md](REQUIREMENTS.md).

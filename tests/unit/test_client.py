@@ -50,15 +50,14 @@ def test_official_api_methods_and_documented_filters() -> None:
         path = request.url.path
         if path.startswith("/challenges"):
             data = {"titre": "Example", "score": "10", "url_challenge": CHALLENGE}
-        elif path.startswith("/auteurs"):
-            data = {"nom": "Example", "id_auteur": "2", "score": "10", "position": "4"}
-        elif path.startswith("/classement"):
-            data = {"nom": "Example", "score": "10", "place": "4"}
         else:
-            data = {"nom": "Example", "id_environnement_virtuel": "3"}
+            assert path == "/auteurs/2"
+            data = {"nom": "Example", "id_auteur": "2", "score": "10", "position": "4"}
         return httpx.Response(200, json=[data, {"rel": "self", "href": str(request.url)}])
 
-    with RootMeClient(api_key="test-api", transport=httpx.MockTransport(handler)) as client:
+    with RootMeClient(
+        spip_session="test-session", transport=httpx.MockTransport(handler)
+    ) as client:
         assert client.get_challenge(7).id == 7
         assert (
             client.list_challenges(
@@ -70,15 +69,8 @@ def test_official_api_methods_and_documented_filters() -> None:
         )
         assert calls[-1].url.params.get_list("id_auteur[]") == ["1", "2"]
         assert calls[-1].url.params["titre"] == "Test"
-        assert client.list_users(name="Example", status="6forum", language="en").items[0].id == 2
         assert client.get_user(2).position == 4
-        assert client.ranking(offset=10).items[0].position == 4
-        assert client.list_environments(name="Example", operating_system="Linux").items[0].id == 3
-        assert client.get_environment(3).id == 3
-        assert len(list(client.iter_users())) == 1
-        assert len(list(client.iter_environments())) == 1
-        assert len(list(client.iter_ranking())) == 1
-    assert all(r.headers["cookie"] == "api_key=test-api" for r in calls)
+    assert all(r.headers["cookie"] == "spip_session=test-session" for r in calls)
 
 
 def test_lazy_pagination_and_metadata() -> None:
@@ -120,7 +112,9 @@ def test_pagination_cycles_and_host_confinement(target: str, kind: type[Exceptio
             200, json=[{"titre": "Example"}, {"rel": "next", "href": target}]
         )
     )
-    with RootMeClient(api_key="test-api", transport=httpx.MockTransport(handler)) as client:
+    with RootMeClient(
+        spip_session="test-session", transport=httpx.MockTransport(handler)
+    ) as client:
         iterator = client.iter_challenges()
         assert next(iterator).title == "Example"
         with pytest.raises(kind):
@@ -130,15 +124,14 @@ def test_pagination_cycles_and_host_confinement(target: str, kind: type[Exceptio
 
 def test_boundary_validation_and_missing_api_details() -> None:
     with pytest.raises(ValueError):
-        RootMeClient(session=Session(), api_key="test-api")
+        RootMeClient(session=Session(), spip_session="test-session")
     handler = MagicMock(return_value=httpx.Response(200, json=[]))
-    with RootMeClient(api_key="test-api", transport=httpx.MockTransport(handler)) as client:
+    with RootMeClient(
+        spip_session="test-session", transport=httpx.MockTransport(handler)
+    ) as client:
         for operation in (
             lambda: client.get_challenge(0),
             lambda: client.get_user(True),
-            lambda: client.get_environment(-1),
-            lambda: client.ranking(offset=-1),
-            lambda: list(client.iter_ranking(offset=-1)),
             lambda: client.list_challenges(author_ids=[0]),
             lambda: client.list_categories(language="../"),
         ):
@@ -147,18 +140,16 @@ def test_boundary_validation_and_missing_api_details() -> None:
         with pytest.raises(UnexpectedResponseError):
             client.get_challenge(7)
         with pytest.raises(ValueError):
-            client.get_page(API + "/challenges")
+            client._get_page(API + "/challenges")
         with pytest.raises(ValueError):
-            client.get_page(WEB + "?action=logout")
-        with pytest.raises(ValueError):
-            client.perform_action(API + "/challenges")
+            client._get_page(WEB + "?action=logout")
         with pytest.raises(ValueError):
             client.submit_answer(CHALLENGE, "")
-        with pytest.raises(AuthenticationRequiredError):
-            client.preferences()
+    with RootMeClient() as client, pytest.raises(AuthenticationRequiredError):
+        client.preferences()
     with (
         RootMeClient(
-            api_key="test-api",
+            spip_session="test-session",
             transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"titre": "No URL"})),
         ) as client,
         pytest.raises(UnexpectedResponseError),
@@ -184,7 +175,9 @@ def test_web_read_categories_and_download(fixture_html: Path, tmp_path: Path) ->
             return httpx.Response(200, content=b"file")
         return httpx.Response(200, text=html)
 
-    with RootMeClient(api_key="test-api", transport=httpx.MockTransport(handler)) as client:
+    with RootMeClient(
+        spip_session="test-session", transport=httpx.MockTransport(handler)
+    ) as client:
         assert client.get_challenge(CHALLENGE).id == 7
         assert client.read_challenge(7).id == 7
         assert [c.title for c in client.list_categories()] == ["Example"]
@@ -280,10 +273,10 @@ def test_explicit_browser_login_and_cleanup(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_logout_clears_state_even_on_failure() -> None:
-    state = Session("test-api")
+    state = Session()
     with RootMeClient(session=state) as client:
         client.logout()
-        assert state.api_key is None and state.cookies == ()
+        assert state.cookies == ()
     state = Session(cookies=())
     from rootme_sdk import SessionCookie
 
@@ -300,7 +293,7 @@ def test_logout_clears_state_even_on_failure() -> None:
         browser.close.assert_called_once()
 
 
-def test_preferences_upload_and_action_mutations(fixture_html: Path) -> None:
+def test_preferences_upload(fixture_html: Path) -> None:
     html = (fixture_html / "preferences.html").read_text()
     calls: list[httpx.Request] = []
 
@@ -320,8 +313,7 @@ def test_preferences_upload_and_action_mutations(fixture_html: Path) -> None:
         )
         form = client.preferences().forms[0]
         with pytest.raises(ValueError):
-            client.submit_form(form, {}, files={"unknown": Upload("test", b"x")})
-        assert client.perform_action(WEB + "?action=example").title == "Preferences"
+            client._submit_form(form, {}, files={"unknown": Upload("test", b"x")})
     assert sum(c.method == "POST" for c in calls) == 1
 
 
@@ -336,8 +328,8 @@ def test_get_form_and_missing_or_ambiguous_form() -> None:
     with RootMeClient(
         spip_session="test-session", transport=httpx.MockTransport(handler)
     ) as client:
-        form = client.get_page(WEB).forms[0]
-        client.submit_form(form, {"q": "Test"})
+        form = client._get_page(WEB).forms[0]
+        client._submit_form(form, {"q": "Test"})
         assert calls[-1].url.params["q"] == "Test"
     with pytest.raises(UnexpectedResponseError):
         _find_form(page(html, WEB), "other")

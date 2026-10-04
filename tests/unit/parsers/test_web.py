@@ -14,6 +14,34 @@ from rootme_sdk.parsers import web
 URL = "https://www.root-me.org/en/Challenges/Example/Test"
 
 
+def test_observed_already_solved_feedback(fixture_html: Path) -> None:
+    document = web.page((fixture_html / "submission-already-solved.html").read_text(), URL)
+    result = web.submission_result(document, "synthetic-answer")
+    assert result.status == SubmissionStatus.ALREADY_SOLVED
+    assert "déjà les 10 Points" in result.message
+
+
+def test_unrelated_success_does_not_validate_a_challenge() -> None:
+    document = web.page('<form id="login"><p class="success">Logged in</p></form>', URL)
+    assert (
+        web.submission_result(document, "synthetic-answer").status == SubmissionStatus.INDETERMINATE
+    )
+
+
+@pytest.mark.parametrize(
+    "kind,status",
+    [("success", SubmissionStatus.ACCEPTED), ("error", SubmissionStatus.REJECTED)],
+)
+def test_platform_feedback_classes(kind: str, status: SubmissionStatus) -> None:
+    document = web.page(
+        f'<div id="formulaire_validation_challenge"><p class="{kind}">'
+        "Feedback for synthetic-answer</p></div>",
+        URL,
+    )
+    result = web.submission_result(document, "synthetic-answer")
+    assert result.status == status and "synthetic-answer" not in result.message
+
+
 def test_observed_root_base_element() -> None:
     html = (
         '<head><base href="https://www.root-me.org/"></head>'

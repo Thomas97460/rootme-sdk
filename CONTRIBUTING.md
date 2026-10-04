@@ -1,44 +1,41 @@
 # Contributing
 
 Use `nix develop`, `uv sync --locked --extra browser`, and `task ci`. Enable the
-pre-commit hook with `git config core.hooksPath .githooks`. Tests are offline; do
-not add account credentials or real platform calls to CI. Build verification
-installs the wheel and source archive into clean environments using the local uv
-cache, checks the public exports and confirms the typing marker is included.
+pre-commit hook with `git config core.hooksPath .githooks`. Automated tests are
+offline and independent of Root-Me accounts. Distribution checks prepare locked
+runtime dependencies from the local uv cache, install each artifact in a clean
+environment and verify public exports, version and typing information.
 
-Branch from current `main`, open a PR with a Conventional Commit title and squash
-merge only after required checks pass. Set the repository's required checks to
-`quality (3.13)`, `quality (3.14)` and `lint-pr-title` for PRs. Repository settings
-and protection changes require the maintainer's explicit approval. A change to a
-CODEOWNERS path also needs conversational approval before merging; do not require
-self-approval through GitHub review, which cannot be satisfied by the author.
+Branch from current main, open a Conventional Commit PR and squash merge after
+checks pass. Required checks are quality (3.13), quality (3.14) and lint-pr-title.
+Governance changes and merges touching CODEOWNERS paths require explicit approval
+in the conversation, as defined in AGENTS.md.
 
-## Release setup
+## Releases
 
-Before the first approved release, configure a pending
-[PyPI Trusted Publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/):
+The repository and GitHub releases remain private. PyPI publication is deferred:
+the release workflow skips it unless the repository variable PUBLISH_PYPI is true.
 
-- Project: `rootme-sdk` (confirm name availability and ownership).
-- GitHub owner: `Thomas97460`; repository: `rootme-sdk`.
-- Workflow: `release.yml`; GitHub environment: `pypi`.
+1. Set the version in pyproject.toml through a validated PR and merge.
+2. Wait for successful CI on that exact main commit.
+3. Obtain explicit release approval, then tag that commit as vX.Y.Z and push.
+4. Watch release.yml: it verifies version/main CI, checks and builds artifacts,
+   then attaches the wheel and source archive to the private GitHub release.
+5. Verify assets and install/import each distribution from a clean environment.
 
-Create the corresponding GitHub environment. The workflow exchanges its OIDC
-identity for a short-lived PyPI credential; no long-lived token is stored in the
-repository. A PyPI project lookup returned 404 on 2026-10-04; that does not
-guarantee the name can still be registered when publishing.
+Never rewrite release tags or published versions. Correct failures with a normal
+PR and a newly approved version/tag.
 
-## Release procedure
+## Future PyPI setup
 
-1. Update `[project].version` in a normal PR, validate and merge.
-2. Wait for successful CI on that exact `main` commit.
-3. Obtain explicit approval for `vX.Y.Z` in the current conversation, then tag
-   and push that validated commit. This approves both publication destinations.
-4. Watch `release.yml`: it checks tag/version/main CI, builds and verifies the
-   artifacts once, then sends identical files to GitHub and PyPI.
-5. Confirm both GitHub assets, PyPI metadata and installation/import from PyPI
-   in a clean environment. No release is complete before those checks succeed.
+Enable PyPI only after explicit authorization and project ownership checks.
+Configure a [Pending Trusted Publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/):
 
-Never rewrite release tags or an existing package version. Correct failures by
-fixing forward through a PR and a newly approved version/tag. A partial publication
-must be diagnosed; it is not a successful release. Consumers can pin a previous
-known-good version while the correction is prepared.
+- Project: rootme-sdk; confirm name availability and ownership.
+- GitHub owner/repository: Thomas97460/rootme-sdk.
+- Workflow: release.yml; GitHub environment: pypi.
+
+Create that environment and set PUBLISH_PYPI=true. The workflow uses OIDC without
+stored long-lived tokens and publishes the same artifacts as GitHub. Once enabled,
+release verification also checks the PyPI version and a clean installation from
+PyPI. PyPI artifacts are public even when their source repository remains private.

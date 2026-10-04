@@ -49,14 +49,11 @@ class SessionCookie:
 class Session:
     """Reusable state containing credentials but never a login password."""
 
-    api_key: str | None = field(default=None, repr=False)
     cookies: tuple[SessionCookie, ...] = field(default=(), repr=False)
     user_agent: str = DEFAULT_AGENT
 
     def __post_init__(self) -> None:
         """Validate secret header values without including them in an error."""
-        if self.api_key is not None:
-            SessionCookie("api_key", self.api_key)
         if not self.user_agent.isascii() or any(c in self.user_agent for c in "\r\n\0"):
             raise ValueError("Invalid user agent.")
 
@@ -68,8 +65,7 @@ class Session:
     def cookie_header(self, host: str, path: str) -> str:
         """Build cookies for approved exact hosts, never challenge servers."""
         if host == API_HOST:
-            credentials = {"api_key": self.api_key, "spip_session": self.spip_session}
-            return "; ".join(f"{k}={v}" for k, v in credentials.items() if v)
+            return f"spip_session={self.spip_session}" if self.spip_session else ""
         if host != WEB_HOST:
             return ""
         return "; ".join(
@@ -85,7 +81,6 @@ class Session:
         target = Path(path)
         payload = {
             "version": 1,
-            "api_key": self.api_key,
             "user_agent": self.user_agent,
             "cookies": [
                 {
@@ -165,7 +160,7 @@ def _state(data: object) -> Session:
     """Validate the remaining fields of a saved SDK session."""
     if not isinstance(data, dict):
         raise ValueError
-    agent, key = data["user_agent"], data["api_key"]
-    if not isinstance(agent, str) or key is not None and not isinstance(key, str):
+    agent = data["user_agent"]
+    if not isinstance(agent, str):
         raise ValueError
-    return Session(key, _cookies(data["cookies"]), agent)
+    return Session(cookies=_cookies(data["cookies"]), user_agent=agent)

@@ -42,24 +42,6 @@ class UserProfile:
 
 
 @dataclass(frozen=True)
-class RankingEntry:
-    """One entry of the public ranking."""
-
-    position: int
-    name: str
-    score: int
-
-
-@dataclass(frozen=True)
-class Environment:
-    """Virtual-environment data without inventing undocumented attributes."""
-
-    id: int | None
-    name: str
-    data: JSONObject = field(repr=False)
-
-
-@dataclass(frozen=True)
 class Category:
     """A category link discovered in the challenge catalogue."""
 

@@ -3,10 +3,8 @@ import pytest
 from rootme_sdk import AuthenticationRequiredError, PermissionDeniedError, UnexpectedResponseError
 from rootme_sdk.parsers.api import (
     challenge,
-    environment,
     integer,
     json_payload,
-    ranking,
     records,
     text,
     user,
@@ -59,9 +57,6 @@ def test_record_models_preserve_extra_data() -> None:
     assert result.statement == "Read\nthis" and result.data["difficulte"] == "1"
     assert user({"nom": "Example", "score": "10", "position": 3}, identifier=4).id == 4
     assert user({"nom": "Example", "id_auteur": "8"}).id == 8
-    assert environment({"nom": "Example", "id_environnement_virtuel": "6"}).id == 6
-    assert environment({"nom": "Example"}, identifier=6).id == 6
-    assert ranking({"nom": "Example", "place": "2", "score": "10"}).position == 2
     assert integer({}, "absent") is None and text({}, "absent", default="") == ""
 
 

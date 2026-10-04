@@ -18,6 +18,14 @@ from ..models import (
 )
 from ..urls import platform_url
 
+_ALREADY_SOLVED_MESSAGES = (
+    "already validated this challenge",
+    "already solved this challenge",
+    "déjà validé ce challenge",
+    "déjà résolu ce challenge",
+    "vous avez déjà les",
+)
+
 
 def attribute(tag: Tag, name: str, default: str = "") -> str:
     """Read a scalar HTML attribute rather than trusting malformed markup."""
@@ -168,19 +176,17 @@ def form_values(form: WebForm, updates: Mapping[str, str]) -> dict[str, str]:
 def submission_result(document: WebPage, answer: str) -> SubmissionResult:
     """Classify only explicit validation feedback and redact the supplied answer."""
     soup = BeautifulSoup(document.html, "html.parser")
-    container = soup.select_one("#formulaire_validation_challenge") or soup
-    success = container.select_one(".reponse_formulaire_ok")
-    rejection = container.select_one(".reponse_formulaire_erreur")
+    container = soup.select_one(
+        "#formulaire_validation_challenge, .formulaire_validation_challenge"
+    )
+    if container is None:
+        return SubmissionResult(SubmissionStatus.INDETERMINATE)
+    success = container.select_one(".reponse_formulaire_ok, .success")
+    rejection = container.select_one(".reponse_formulaire_erreur, .error")
     feedback = success or rejection
     if feedback:
         message = feedback.get_text(" ", strip=True).replace(answer, "[redacted]")
-        markers = (
-            "already validated this challenge",
-            "already solved this challenge",
-            "déjà validé ce challenge",
-            "déjà résolu ce challenge",
-        )
-        if any(marker in message.lower() for marker in markers):
+        if any(marker in message.lower() for marker in _ALREADY_SOLVED_MESSAGES):
             return SubmissionResult(SubmissionStatus.ALREADY_SOLVED, message)
     if success:
         return SubmissionResult(

@@ -1,100 +1,67 @@
 # Root-Me SDK — requirements
 
-## Purpose
+## Purpose and scope
 
-Build a lightweight Python SDK that lets another program interact with
-[Root-Me](https://www.root-me.org/) using an existing user account: manage
-authentication end to end, discover and read challenges, and submit an answer.
-Provide a simple Python client object with methods, typed results and documented
-errors. No challenge-solving logic or execution of attacks against challenge
-services. Follow [AGENTS.md](AGENTS.md); choose and justify the architecture,
-dependencies, supported Python versions and exact public signatures during
-implementation.
+Build a lightweight, typed Python SDK for [Root-Me](https://www.root-me.org/),
+with a simple client object for an existing account and challenges. Manage the
+complete login → read → submit flow. No challenge-solving logic or attacks against
+challenge services. Messaging, community features and virtual-environment
+management are outside the scope. Follow [AGENTS.md](AGENTS.md).
 
-## Authentication and access
+## Authentication
 
-- Investigate the actual login and submission flows before implementing them.
-  Support username/password where possible, an existing session, and an API key
-  where accepted. Do not assume these grant identical capabilities.
-- Manage cookies, authentication state, expiry, reconnection and logout. Allow
-  explicit session reuse between program runs without persisting passwords;
-  session persistence must be opt-in and treat its contents as secrets.
-- When a browser or human step is needed, expose an actionable state to the
-  caller and allow the operation to resume afterwards. A normal SDK call must
-  never unexpectedly prompt on stdin or open a browser. Fully unattended use
-  should work whenever the platform permits it.
-- Allow genuinely anonymous reads without credentials. Require authentication
-  only for operations that need it, and distinguish missing authentication,
-  expired credentials, insufficient permissions and human intervention.
-- Hide platform-specific authentication details behind the client. Never send
-  account credentials or session cookies to challenge services or unrelated
-  hosts, including through redirects or resource downloads.
+- Use username/password, supplied in memory or through a local secret file.
+  Support explicit reuse of an authenticated session. Do not implement API-key
+  authentication. The official data API may be used with the login session.
+- Manage cookies, expiry, logout and explicit reconnection. Persist sessions only
+  when requested, with private permissions; never persist passwords in sessions.
+- Browser assistance is explicit. Normal calls never open a window or prompt on
+  stdin. Allow automatic credential entry and session reuse; expose a meaningful
+  error when the platform requires JavaScript or human verification.
+- Allow anonymous website reads where Root-Me permits them. Distinguish missing,
+  expired/rejected authentication, denied access and human intervention.
+- Never forward credentials to challenge services or unrelated hosts, including
+  through redirects and attachment downloads.
 
-## Functional scope
+## Account and challenges
 
-- List/search challenges and categories, with the available filters, pagination
-  and language selection. Retrieve a challenge by a stable reference such as its
-  identifier or URL.
-- Read its statement, metadata, points, difficulty, links, supporting resources
-  and available files; allow callers to download those files. Expose available
-  launch/access instructions and connection information. Support platform-side
-  challenge activation when needed to obtain access, without solving it.
-- Submit a caller-provided answer and return the platform's actual outcome:
-  accepted, rejected, already solved, temporarily blocked, or indeterminate when
-  confirmation is unavailable. Preserve useful feedback and waiting information.
-- Expose all verified capabilities available to the account, including reads
-  and writes beyond challenges: profiles/preferences, scores, rankings,
-  progression, community interactions and virtual-environment management wherever
-  supported by the platform. Prioritize the complete authenticate → read → submit
-  flow, then cover the remaining capabilities.
-- Inventory verified operations in a concise capability table: method, purpose,
-  access requirement and limitations. Prefer the official API where it covers
-  the need; use verified web flows for missing capabilities. Do not invent
-  endpoints or equate public data with anonymous API access.
-- Every mutation requires an explicit SDK method call; reading or reconnecting
-  must not silently trigger unrelated changes. Document capabilities that cannot
-  be automated and the reason, including any required human interaction.
+- Read account profile, score and available progression data; discover and update
+  the authenticated account's preferences, including supported file controls.
+- List/search challenges and categories using verified filters, pagination and
+  language selection. Resolve a challenge by identifier or its actual URL.
+- Read statement, metadata, points, difficulty, resource links, attachments and
+  available launch/access instructions. Download caller-selected resources.
+- Submit a supplied answer once and return accepted, rejected, already solved,
+  temporarily blocked or indeterminate, with useful feedback and waiting data.
+- Use observed platform flows and actual response shapes. Prefer the official
+  data API where covered, authenticated through the session. Do not invent routes.
+- Account changes and answer submissions require an explicit client method.
+  Generic website mutations are implementation details, not a public interface.
 
-## Reliability and developer experience
+## Reliability and delivery
 
-- Keep common use cases short; document installation, anonymous reads,
-  authenticated reads, session reuse, human handoff and submission with examples.
-  Return useful structured data rather than requiring callers to parse HTML or
-  make raw requests themselves.
-- Provide bounded timeouts and retries, respect rate limits and `Retry-After`,
-  and release network/browser resources predictably. Never automatically replay
-  a submission or other mutation after an ambiguous failure.
-- Detect unexpected responses, login pages and platform/protection changes;
-  report a meaningful error rather than fabricated data or success. Secrets and
-  submitted answers must not appear in logs, errors or committed fixtures.
+- Bound timeouts, redirects and read retries. Respect rate limits and Retry-After.
+  Never replay a mutation after an ambiguous failure; release owned resources.
+- Detect login pages, JavaScript gates and unexpected responses. Do not infer
+  submission success from HTTP 200 or unrelated form feedback.
+- Never emit passwords, session cookies or submitted answers in logs/errors or
+  committed fixtures. Document installation, authentication, reuse and submission.
+- Provide pyproject.toml, uv.lock, a locked Nix devShell, local/CI commands and a
+  typed public package. Nix is the development environment only.
+- Enforce Ruff lint/format, strict mypy, 100% applicable SDK docstrings and 100%
+  complete-SDK unit coverage. Automated tests are offline, with synthetic fixtures
+  and mocked boundaries; add useful multi-module scenarios.
+- Document manual platform observations separately from offline tests. Real-account
+  checks are occasional validation, not an integration suite required by CI.
+- Build and verify a wheel and source archive. The repository and GitHub releases
+  remain private. PyPI publication is deferred and disabled until explicitly
+  enabled and configured. Releases follow AGENTS.md.
 
-## Delivery and acceptance
+## Observed behavior — 2026-10-04
 
-- Deliver the installable SDK, a concise README, typed public API, tests and
-  local/CI quality commands. Use `pyproject.toml`, `uv` and a locked Nix devShell;
-  Nix is only the development environment, not the SDK distribution format.
-- Enforce Ruff lint/format, strict mypy, docstring coverage and **100% unit-test
-  coverage** as specified in `AGENTS.md`.
-- Tests run without external network access, an account or secrets. Use sanitized
-  response fixtures and mocked transport; add broader offline scenarios for
-  login/session expiry, human handoff, resource retrieval and submission outcomes.
-  A timeout after sending an answer must not cause a duplicate submission.
-- Document which platform behavior was observed and which remains unverified.
-  Offline tests do not prove a live account flow works. No real-account
-  integration suite is required; any later manual validation is separate.
-- Release the same versioned wheel and source distribution through GitHub
-  Releases and PyPI, following the tag approval and verification rules in
-  `AGENTS.md`. Target `pip install rootme-sdk`; confirm package-name availability
-  and publishing access before the first release.
-
-## Discovery notes — 2026-10-04
-
-The [official API documentation](https://api.www.root-me.org/?lang=en) lists
-`/login`, `/challenges`, `/auteurs`, `/classement` and `/environnements_virtuels`,
-including detail routes. It describes access using an API key or `spip_session`
-cookie, even for public data. Submission is not documented on that page; verify
-its actual flow rather than assuming the API supports it.
-
-An automated read of the [main site](https://www.root-me.org/) received an Anubis
-access-denied page. This observation does not establish the login flow or whether
-every caller needs human intervention; account for this possibility explicitly.
+The [official API](https://api.www.root-me.org/?lang=en) documents challenge and
+account data through a spip_session cookie. Answer submission uses the website's
+validation_challenge form and passe control. A fresh supplied-password login
+worked in a visible browser without human input; saved-session reuse then worked
+headlessly. A fresh headless login encountered Anubis. Live already-solved feedback
+uses a success class inside the challenge validation form.

@@ -48,8 +48,8 @@ def check(artifact: Path) -> None:
             "from rootme_sdk import RootMeClient, Session; "
             "assert files('rootme_sdk').joinpath('py.typed').is_file(); "
             f"assert version('rootme-sdk') == {version!r}; "
-            "client = RootMeClient(api_key='synthetic-key'); "
-            "assert client.session.api_key == 'synthetic-key'; client.close()"
+            "client = RootMeClient(spip_session='synthetic-session'); "
+            "assert client.session.spip_session == 'synthetic-session'; client.close()"
         )
         subprocess.run([str(python), "-c", source], cwd=directory, check=True)
 

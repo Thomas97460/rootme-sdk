@@ -93,13 +93,13 @@ def test_cookie_scope_response_cookie_and_redirects() -> None:
             )
         return httpx.Response(200, text="done")
 
-    state = Session("test-api", (SessionCookie("spip_session", "test-session"),))
+    state = Session(cookies=(SessionCookie("spip_session", "test-session"),))
     boundary = Transport(state, transport=httpx.MockTransport(handler))
     assert boundary.request("GET", WEB).text == "done"
     assert calls[0].headers["cookie"] == "spip_session=test-session"
     assert calls[1].headers["cookie"] == "spip_session=renewed"
     boundary.request("GET", API, authenticated=True)
-    assert calls[-1].headers["cookie"] == "api_key=test-api; spip_session=renewed"
+    assert calls[-1].headers["cookie"] == "spip_session=renewed"
     boundary.close()
 
 
