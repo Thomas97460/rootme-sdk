@@ -1020,15 +1020,11 @@ wheels = [
 
 [[package]]
 name = "rootme-sdk"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "httpx" },
-]
-
-[package.optional-dependencies]
-browser = [
     { name = "playwright" },
 ]
 
@@ -1046,7 +1042,7 @@ dev = [
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.13,<5" },
     { name = "httpx", specifier = ">=0.28,<1" },
-    { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.55,<2" },
+    { name = "playwright", specifier = ">=1.55,<2" },
 ]
 provides-extras = ["browser"]
 

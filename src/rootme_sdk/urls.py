@@ -1,6 +1,6 @@
 """Exact platform URL validation shared by independent HTTP and browser adapters."""
 
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from .authentication.session import API_HOST, WEB_HOST
 
@@ -17,3 +17,11 @@ def platform_url(url: str) -> str:
     ):
         raise ValueError("Expected an HTTPS Root-Me platform URL.")
     return url
+
+
+def website_url(url: str) -> str:
+    """Resolve a relative website link without accepting other hosts or insecure URLs."""
+    resolved = platform_url(urljoin(f"https://{WEB_HOST}/", url))
+    if urlsplit(resolved).hostname != WEB_HOST:
+        raise ValueError("Expected a Root-Me website URL.")
+    return resolved

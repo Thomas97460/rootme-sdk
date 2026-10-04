@@ -5,8 +5,9 @@ reads reuse the login cookie. Website JavaScript gates can affect public reads.
 
 | Client method | Purpose | Access | Evidence |
 | --- | --- | --- | --- |
-| `login` | Password or secret-file login, optionally in a browser | Existing account | Fresh supplied-password browser login observed without human input |
-| `open_browser` | Explicit JS assistance or manual login | Account, or anonymous with `authenticate=False` | Visible automatic login and headless session reuse observed |
+| `RootMeClient(login, password)` / `RootMeClient(credentials_file=...)` | Connect from credentials and manage browser/session internally | Existing account | Both modes observed without human input, including preferences and challenge reads |
+| `login` | Connect/reconnect an existing client, with automatic JS assistance | Existing account | Same managed authentication flow |
+| `open_browser` | Advanced browser control or manual login | Account, or anonymous with `authenticate=False` | Visible automatic login and headless session reuse observed |
 | `logout` | Server logout and local credential erasure | Session for server logout | Route observed; behavior tested offline |
 | `get_challenge(id)` | Metadata and additional API fields | Login session | Detail response observed |
 | `get_challenge(url)`, `read_challenge` | Full statement, resources and access instructions | Website access | Challenge pages observed |
@@ -21,8 +22,12 @@ reads reuse the login cookie. Website JavaScript gates can affect public reads.
 ## Limits
 
 A fresh visible-browser login succeeded without human input; the saved session
-then worked headlessly. A fresh headless login encountered Anubis in this
-environment. HTTP-only password login can encounter the same JavaScript gate.
+then worked headlessly. The SDK selects visible mode when a desktop is available,
+headless otherwise, and finds or prepares Chromium automatically. A fresh headless
+login encountered Anubis in this environment; platform-enforced human verification
+remains an explicit error. Password login uses the native browser flow by default;
+the HTTP-only override is available for diagnostics. Rejected credentials are
+never silently resubmitted through another login mechanism.
 
 Submission feedback is read only inside the challenge validation form, using
 observed success/error and SPIP feedback classes. Explicit English/French

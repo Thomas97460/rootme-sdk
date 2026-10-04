@@ -4,18 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rootme-sdk"
-version = "0.1.0"
+version = "0.2.0"
 description = "Typed Python client for the Root-Me platform"
 readme = "README.md"
 requires-python = ">=3.13"
 license = "MIT"
-dependencies = ["httpx>=0.28,<1", "beautifulsoup4>=4.13,<5"]
+dependencies = ["httpx>=0.28,<1", "beautifulsoup4>=4.13,<5", "playwright>=1.55,<2"]
 
 [project.urls]
 Repository = "https://github.com/Thomas97460/rootme-sdk"
 
 [project.optional-dependencies]
-browser = ["playwright>=1.55,<2"]
+# Preserve the published extra; browser support is now installed by default.
+browser = []
 
 [dependency-groups]
 dev = ["ruff>=0.14", "mypy>=1.18", "pytest>=8.4", "pytest-cov>=7", "interrogate>=1.7", "twine>=6"]

@@ -1,7 +1,7 @@
 # rootme-sdk
 
-A small, typed Python client for [Root-Me](https://www.root-me.org/): password
-login, reusable sessions, account information/preferences, challenge discovery,
+A small, typed Python client for [Root-Me](https://www.root-me.org/): automatic
+password login, reusable sessions, account information/preferences, challenge discovery,
 statements, attachments and answer submission. Python 3.13 and 3.14 are tested.
 
 ## Install
@@ -11,40 +11,47 @@ Install the checkout, or a wheel downloaded from a GitHub release:
 
 ```bash
 pip install .
-# With optional browser assistance:
-pip install '.[browser]'
-python -m playwright install chromium
 ```
 
-For development, use `uv sync --locked --extra browser`. On NixOS, pass an
-installed browser path, such as
-`executable_path="/run/current-system/sw/bin/google-chrome"`. The Nix devShell
-provides Playwright's required Node runtime and shared library.
+Browser support is included. When JavaScript is required, the SDK uses an installed
+Chrome/Chromium or downloads its managed Chromium automatically on first use.
+For development, use `uv sync --locked`; the Nix devShell provides the required
+Node runtime and shared library.
 
 ## Login and read
 
 ```python
 from rootme_sdk import RootMeClient
 
-with RootMeClient() as client:
-    client.login("your-login", password_file=".secrets/rootme-password", browser=True)
-    client.session.save(".secrets/session.json")
+with RootMeClient("your-login", "your-password") as client:
     challenge = client.read_challenge(5)
     print(challenge.statement)
     for item in client.iter_challenges(lang="en", score=5):
         print(item.title)
 ```
 
-The password file contains the password, with one terminal newline removed.
-Create `.secrets` with permissions 700 and the file with permissions 600.
-Alternatively, pass `password="..."` from your own credential loader. Session
-files contain cookies and no password. There is no API-key authentication.
+Alternatively, create `.secrets/credentials.json`:
 
-`login` uses ordinary HTTP by default. Root-Me's Anubis gate can require JavaScript;
-`browser=True` explicitly opens an isolated browser and fills the credentials.
-A fresh visible-browser login was verified without human input on 2026-10-04.
-The saved session then worked headlessly; a fresh headless login was blocked by
-Anubis in this environment. Human verification may still be necessary elsewhere.
+```json
+{"login": "your-login", "password": "your-password"}
+```
+
+```python
+with RootMeClient(credentials_file=".secrets/credentials.json") as client:
+    challenge = client.read_challenge(5)
+```
+
+Create `.secrets` with permissions 700 and the file with permissions 600. No
+browser selection, cookie handling or session file is required. The constructor
+authenticates before returning. The client uses Root-Me's native JavaScript login
+in an isolated browser automatically. It fills the
+credentials and keeps the browser alive for subsequent operations. Passwords are
+not retained by the client or saved in sessions. There is no API-key authentication.
+
+When a desktop is available, native browser verification may open a window; no
+manual login is required. Without a desktop the SDK uses headless Chromium.
+Root-Me can still refuse automation or require human verification; this produces
+`HumanInterventionRequiredError` rather than claiming authentication succeeded.
 
 `get_challenge(id)` reads official API metadata through the authenticated session;
 `read_challenge(id_or_url)` reads the full website statement and resource links.
@@ -52,18 +59,17 @@ Anubis in this environment. Human verification may still be necessary elsewhere.
 server pagination lazily. Extra metadata stays available in `.data`.
 `list_categories(language="fr")` discovers website category links.
 
-For public website reads needing JavaScript, explicitly call
-`client.open_browser(authenticate=False)`. To authenticate manually, explicitly
-call `client.open_browser()`. Ordinary methods do not prompt or open a browser.
+`RootMeClient()` allows anonymous reads, with automatic JavaScript assistance when
+needed. To connect an existing client, use `client.login("login", "password")` or
+`client.login(credentials_file=".secrets/credentials.json")`.
 
 ## Reuse and submit
 
 ```python
 from pathlib import Path
-from rootme_sdk import RootMeClient, Session, SubmissionStatus
+from rootme_sdk import RootMeClient, SubmissionStatus
 
-with RootMeClient(session=Session.load(".secrets/session.json")) as client:
-    client.open_browser(headless=True)
+with RootMeClient(credentials_file=".secrets/credentials.json") as client:
     challenge = client.read_challenge(5)
     answer = Path(".secrets/answer.txt").read_text().removesuffix("\n")
     result = client.submit_answer(5, answer)
@@ -79,6 +85,11 @@ validation form and redacts the supplied answer.
 Select an attachment from `challenge.resources`, then use
 `client.download(attachment, "attachment.zip")`. Downloads to other hosts receive
 no account cookies. Closing the client releases its HTTP pool and browser.
+
+Advanced callers can explicitly save `client.session` and load it with
+`RootMeClient(session=Session.load(path))`. Session files contain cookies, never
+passwords. `open_browser` and the `login` browser options remain available for
+diagnostics; they are unnecessary for normal password authentication.
 
 ## Account
 
@@ -105,7 +116,7 @@ have not been manually exercised.
 
 ```bash
 nix develop
-uv sync --locked --extra browser
+uv sync --locked
 git config core.hooksPath .githooks
 task ci
 ```
@@ -119,3 +130,7 @@ An approved `vX.Y.Z` tag publishes the wheel and source archive to a private Git
 release. PyPI remains disabled unless explicitly enabled after publisher setup.
 See [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md) and
 [REQUIREMENTS.md](REQUIREMENTS.md).
+
+Since 0.2.0, password login handles JavaScript automatically, Playwright is included
+by default, and the constructor accepts credentials directly. Existing explicit
+session, `login`, and `[browser]` installation calls remain supported.

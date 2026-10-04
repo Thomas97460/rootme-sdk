@@ -10,14 +10,17 @@ management are outside the scope. Follow [AGENTS.md](AGENTS.md).
 
 ## Authentication
 
-- Use username/password, supplied in memory or through a local secret file.
+- Accept login/password directly in the client constructor or a local JSON file
+  containing both values. No additional authentication methods, browser flags or
+  session persistence calls are necessary for normal use.
   Support explicit reuse of an authenticated session. Do not implement API-key
   authentication. The official data API may be used with the login session.
 - Manage cookies, expiry, logout and explicit reconnection. Persist sessions only
   when requested, with private permissions; never persist passwords in sessions.
-- Browser assistance is explicit. Normal calls never open a window or prompt on
-  stdin. Allow automatic credential entry and session reuse; expose a meaningful
-  error when the platform requires JavaScript or human verification.
+- Manage JavaScript assistance automatically when needed, including browser
+  discovery/setup and credential entry. Keep the isolated browser/session alive
+  for subsequent operations. Do not prompt on stdin. Expose a meaningful error
+  if native platform verification cannot complete without human intervention.
 - Allow anonymous website reads where Root-Me permits them. Distinguish missing,
   expired/rejected authentication, denied access and human intervention.
 - Never forward credentials to challenge services or unrelated hosts, including
@@ -63,5 +66,7 @@ The [official API](https://api.www.root-me.org/?lang=en) documents challenge and
 account data through a spip_session cookie. Answer submission uses the website's
 validation_challenge form and passe control. A fresh supplied-password login
 worked in a visible browser without human input; saved-session reuse then worked
-headlessly. A fresh headless login encountered Anubis. Live already-solved feedback
-uses a success class inside the challenge validation form.
+headlessly. Both constructor credential sources were verified without human input,
+including preferences and challenge reads. API challenge links can be relative
+website paths. A fresh headless login encountered Anubis. Live already-solved
+feedback uses a success class inside the challenge validation form.

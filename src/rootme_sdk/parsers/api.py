@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 
 from ..errors import AuthenticationRequiredError, PermissionDeniedError, UnexpectedResponseError
 from ..models import Challenge, JSONObject, JSONValue, UserProfile
+from ..urls import website_url
 
 
 def json_payload(content: str) -> JSONValue:
@@ -71,11 +72,22 @@ def challenge(data: JSONObject, *, identifier: int | None = None) -> Challenge:
         text(data, "titre"),
         integer(data, "score"),
         integer(data, "id_rubrique"),
-        text(data, "url_challenge", default="") or None,
+        _challenge_link(data),
         html,
         BeautifulSoup(html, "html.parser").get_text("\n", strip=True),
         data=data,
     )
+
+
+def _challenge_link(data: JSONObject) -> str | None:
+    """Normalize observed relative API links while rejecting malformed destinations."""
+    url = text(data, "url_challenge", default="")
+    if not url:
+        return None
+    try:
+        return website_url(url)
+    except ValueError:
+        raise UnexpectedResponseError("Root-Me returned an invalid challenge URL.") from None
 
 
 def user(data: JSONObject, *, identifier: int | None = None) -> UserProfile:
