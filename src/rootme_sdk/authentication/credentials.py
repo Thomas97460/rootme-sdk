@@ -41,7 +41,7 @@ class Credentials:
     def _from_file(cls, path: str | Path) -> Credentials:
         """Parse a JSON object containing login and password, keeping errors private."""
         try:
-            data = json.loads(Path(path).read_text())
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
         except (OSError, ValueError):
             raise ValueError("Cannot read a valid JSON credentials file.") from None
         if not isinstance(data, dict) or set(data) != {"login", "password"}:

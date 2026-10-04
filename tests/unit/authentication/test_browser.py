@@ -421,7 +421,9 @@ def test_system_chromium_detection(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     monkeypatch.setattr("rootme_sdk.authentication.browser.shutil.which", lambda name: None)
     for variable in ("LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)"):
         monkeypatch.delenv(variable, raising=False)
-    monkeypatch.setattr(Path, "is_file", lambda path: str(path).startswith("/Applications/"))
+    monkeypatch.setattr(
+        Path, "is_file", lambda path: str(path).startswith(str(Path("/Applications")))
+    )
     assert _system_chromium().endswith("Google Chrome")
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     monkeypatch.setattr(Path, "is_file", lambda path: path.name == "chrome.exe")

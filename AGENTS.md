@@ -83,6 +83,8 @@ authorship trailers to commits.
   sleeps. Do not skip or retry failing tests to obtain green CI.
 - Verify built wheels/source distributions install and expose the typed public
   interface without contacting Root-Me. Ship typing information (`py.typed`).
+- Keep packaging verification tests offline too. Run dependency advisories and
+  redacted Git history scans separately with `task audit` and `task secrets`.
 
 ## Git workflow
 
@@ -106,7 +108,7 @@ authorship trailers to commits.
 
 ## Releases
 
-- Distribution is a wheel and source archive attached to a private GitHub
+- Distribution is a wheel and source archive attached to a GitHub
   Release. PyPI publication is deferred and disabled unless explicitly enabled
   with publisher permissions. Merging to `main` does not publish a release.
   Do not add PyInstaller binaries or Nix packaging.
@@ -128,9 +130,5 @@ authorship trailers to commits.
   version and tag; consumers can pin a previous known-good version. Never rewrite
   release history. A corrective release still needs explicit tag approval.
 
-## Reference principles
-
-Adapted from `/home/collet/Bureau/quota-tracker/AGENTS.md` for Git/release rules
-and `/home/collet/Bureau/llm/llm-saas/AGENTS.md` for relevant Python rules. These
-guidelines are self-contained; deployment, frontend, database and Nix packaging
-rules from those applications do not apply to this SDK.
+These guidelines are self-contained; deployment, frontend, database and Nix
+packaging rules from other applications do not apply to this SDK.

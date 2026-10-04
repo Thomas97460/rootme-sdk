@@ -64,3 +64,18 @@ def test_invalid_json_file_does_not_echo_contents(tmp_path: Path, content: str) 
 def test_unreadable_or_empty_file(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="credentials file"):
         Credentials.load(None, None, tmp_path / "missing")
+
+
+def test_utf8_credentials_are_independent_of_system_encoding(tmp_path: Path) -> None:
+    source = tmp_path / "credentials.json"
+    source.write_bytes('{"login":"Éxample","password":"synthétique-🔒"}'.encode())
+    credentials = Credentials.load(None, None, source)
+    assert credentials == Credentials("Éxample", "synthétique-🔒")
+    assert "synthétique" not in repr(credentials)
+
+
+def test_invalid_utf8_credentials_do_not_echo_contents(tmp_path: Path) -> None:
+    source = tmp_path / "credentials.json"
+    source.write_bytes(b"\xffsynthetic-password")
+    with pytest.raises(ValueError, match="credentials file"):
+        Credentials.load(None, None, source)

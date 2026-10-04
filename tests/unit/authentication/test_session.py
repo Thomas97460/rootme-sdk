@@ -57,7 +57,10 @@ def test_round_trip_private_atomic_file(tmp_path: Path) -> None:
         cookies=(SessionCookie("spip_session", "test-session"),), user_agent="Example/1"
     )
     state.save(path)
-    assert path.stat().st_mode & 0o777 == 0o600
+    if os.name == "posix":
+        assert path.stat().st_mode & 0o777 == 0o600
+    # Windows inherits directory ACLs; chmod cannot verify access isolation there.
+    assert os.access(path, os.R_OK | os.W_OK)
     assert Session.load(path) == state
     assert list(tmp_path.iterdir()) == [path]
 

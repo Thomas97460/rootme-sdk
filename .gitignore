@@ -10,4 +10,11 @@ coverage.xml
 dist/
 .direnv/
 .secrets/
+.env
+.env.*
+!.env.example
+.pypirc
+.audit-requirements.txt
+build/
+*.log
 *.egg-info/

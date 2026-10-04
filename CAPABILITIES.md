@@ -28,11 +28,13 @@ missing Linux `DISPLAY` is rejected before browser startup. Headless and HTTP-on
 login are not supported. Platform verification, network and rate-limit failures
 are explicit errors; rejected credentials are never silently resubmitted.
 
-The current authentication change is provisional. Both credential sources produced
+Authentication is still at alpha maturity. Both credential sources produced
 successful account/API/challenge reads, but some fresh sessions still returned a
 login page during account verification after positive login feedback. The cause
-is unresolved. Further live checks stopped after an HTTP 429 response; this branch
-has not been validated for release reliability.
+is unresolved. Further live checks stopped after an HTTP 429 response. Automated
+unit and packaging checks cannot establish reliable live platform authentication.
+No guarantee of unattended login success is made. Account preference mutations
+also lack live validation; use deliberate, minimal updates.
 
 Submission feedback is read only inside the challenge validation form, using
 observed success/error and SPIP feedback classes. Explicit English/French

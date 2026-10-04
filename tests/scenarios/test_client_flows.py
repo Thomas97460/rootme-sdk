@@ -15,7 +15,7 @@ CHALLENGE = WEB + "en/Challenges/Example/Test"
 
 def test_reusable_session_read_download_submit_and_logout(fixture_html: Path) -> None:
     calls: list[httpx.Request] = []
-    challenge = (fixture_html / "challenge.html").read_text()
+    challenge = (fixture_html / "challenge.html").read_text(encoding="utf-8")
 
     def server(request: httpx.Request) -> httpx.Response:
         calls.append(request)
@@ -51,7 +51,7 @@ def test_reusable_session_read_download_submit_and_logout(fixture_html: Path) ->
 
 def test_anonymous_challenge_read_requires_login_for_submission(fixture_html: Path) -> None:
     calls: list[httpx.Request] = []
-    challenge = (fixture_html / "challenge.html").read_text()
+    challenge = (fixture_html / "challenge.html").read_text(encoding="utf-8")
 
     def server(request: httpx.Request) -> httpx.Response:
         calls.append(request)
@@ -99,7 +99,7 @@ def test_file_credentials_handle_js_read_and_submit_without_extra_calls(
         browser_page.url = url
         browser_page.content.return_value = (
             fixture_html / ("preferences.html" if "page=preferences" in url else "challenge.html")
-        ).read_text()
+        ).read_text(encoding="utf-8")
         return MagicMock(status=200)
 
     def evaluate(script: str, args: dict[str, object] | None = None) -> object:

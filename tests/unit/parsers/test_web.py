@@ -15,7 +15,9 @@ URL = "https://www.root-me.org/en/Challenges/Example/Test"
 
 
 def test_observed_already_solved_feedback(fixture_html: Path) -> None:
-    document = web.page((fixture_html / "submission-already-solved.html").read_text(), URL)
+    document = web.page(
+        (fixture_html / "submission-already-solved.html").read_text(encoding="utf-8"), URL
+    )
     result = web.submission_result(document, "synthetic-answer")
     assert result.status == SubmissionStatus.ALREADY_SOLVED
     assert "déjà les 10 Points" in result.message
@@ -55,7 +57,7 @@ def test_observed_root_base_element() -> None:
 
 
 def test_observed_challenge_structure(fixture_html: Path) -> None:
-    document = web.page((fixture_html / "challenge.html").read_text(), URL)
+    document = web.page((fixture_html / "challenge.html").read_text(encoding="utf-8"), URL)
     result = web.challenge_page(document)
     assert result.id == 7 and result.score == 10 and result.title == "Example challenge"
     assert "Read the supplied file" in result.statement
@@ -66,7 +68,7 @@ def test_observed_challenge_structure(fixture_html: Path) -> None:
 
 
 def test_preferences_successful_controls_and_csrf(fixture_html: Path) -> None:
-    form = web.page((fixture_html / "preferences.html").read_text(), URL).forms[0]
+    form = web.page((fixture_html / "preferences.html").read_text(encoding="utf-8"), URL).forms[0]
     values = web.form_values(form, {"nom": "New", "pays": "FR"})
     assert values["formulaire_action_args"] == "synthetic-token"
     assert values["nom"] == "New" and values["bio"] == "Example biography"
