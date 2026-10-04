@@ -1,10 +1,34 @@
 """Install both distribution formats in clean offline environments and check exports."""
 
+import os
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
+
+def runtime_environment(environment: Path) -> Path:
+    """Install locked runtime dependencies without assuming cached index metadata."""
+    subprocess.run(
+        [
+            "uv",
+            "sync",
+            "--frozen",
+            "--offline",
+            "--no-dev",
+            "--no-install-project",
+            "--python",
+            sys.executable,
+        ],
+        env={
+            **os.environ,
+            "UV_PROJECT_ENVIRONMENT": str(environment),
+            "VIRTUAL_ENV": str(environment),
+        },
+        check=True,
+    )
+    return environment / "bin" / "python"
 
 
 def check(artifact: Path) -> None:
@@ -13,8 +37,7 @@ def check(artifact: Path) -> None:
         with Path("pyproject.toml").open("rb") as stream:
             version = tomllib.load(stream)["project"]["version"]
         environment = Path(directory) / "venv"
-        subprocess.run(["uv", "venv", "--python", sys.executable, str(environment)], check=True)
-        python = environment / "bin" / "python"
+        python = runtime_environment(environment)
         subprocess.run(
             ["uv", "pip", "install", "--offline", "--python", str(python), str(artifact.resolve())],
             check=True,
