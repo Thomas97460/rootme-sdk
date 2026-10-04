@@ -1,0 +1,85 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.14'
+      - uses: astral-sh/setup-uv@v10.2.0
+      - name: Verify approved tag, metadata and successful main CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import tomllib
+          version = tomllib.load(open('pyproject.toml', 'rb'))['project']['version']
+          tag = os.environ['GITHUB_REF_NAME']
+          if not re.fullmatch(r'v\d+\.\d+\.\d+', tag) or tag != f'v{version}':
+              raise SystemExit('Tag and package version must agree')
+          subprocess.run(['git', 'merge-base', '--is-ancestor', 'HEAD', 'origin/main'], check=True)
+          sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          endpoint = f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/workflows/ci.yml/runs?head_sha={sha}&branch=main&status=success"
+          runs = json.loads(subprocess.check_output(['gh', 'api', endpoint], text=True))
+          if not runs['workflow_runs']:
+              raise SystemExit('Release commit needs successful CI on main')
+          PY
+      - run: uv sync --locked --extra browser
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run mypy
+      - run: uv run interrogate -c pyproject.toml src/rootme_sdk
+      - run: uv run pytest tests/unit --cov=rootme_sdk --cov-fail-under=100
+      - run: uv run pytest tests/scenarios
+      - run: uv build --clear
+      - run: uv run twine check dist/*
+      - run: uv run python scripts/check_distributions.py
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: distributions
+          path: dist/*
+  github:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: distributions
+          path: dist
+      - name: Publish GitHub assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" dist/*
+          --repo "$GITHUB_REPOSITORY" --verify-tag
+          --title "$GITHUB_REF_NAME"
+          --notes "Python wheel and source distribution. See the tagged README for usage."
+  pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: distributions
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@v1.14.2

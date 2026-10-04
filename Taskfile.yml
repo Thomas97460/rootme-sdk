@@ -1,0 +1,27 @@
+version: '3'
+tasks:
+  format:
+    cmds: [uv run ruff check --fix ., uv run ruff format .]
+  format-check:
+    cmds: [uv run ruff format --check .]
+  lint:
+    cmds: [uv run ruff check .]
+  typecheck:
+    cmds: [uv run mypy]
+  docstrings:
+    cmds: [uv run interrogate -c pyproject.toml src/rootme_sdk]
+  test-unit:
+    cmds: [uv run pytest tests/unit --cov=rootme_sdk --cov-report=term-missing --cov-fail-under=100]
+  test-scenarios:
+    cmds: [uv run pytest tests/scenarios]
+  build:
+    cmds: [uv build --clear, uv run twine check dist/*, uv run python scripts/check_distributions.py]
+  ci:
+    cmds:
+      - task: format-check
+      - task: lint
+      - task: typecheck
+      - task: docstrings
+      - task: test-unit
+      - task: test-scenarios
+      - task: build
