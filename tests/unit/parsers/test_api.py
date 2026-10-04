@@ -69,3 +69,13 @@ def test_no_lossy_integer_coercion(value: object) -> None:
 def test_invalid_required_text() -> None:
     with pytest.raises(UnexpectedResponseError):
         text({}, "nom")
+
+
+def test_relative_challenge_links_from_api() -> None:
+    assert (
+        challenge({"titre": "Example", "url_challenge": "fr/Challenges/Example/Test"}).url
+        == "https://www.root-me.org/fr/Challenges/Example/Test"
+    )
+    assert challenge({"titre": "Example"}).url is None
+    with pytest.raises(UnexpectedResponseError, match="invalid challenge URL"):
+        challenge({"titre": "Example", "url_challenge": "//evil.example/"})

@@ -1,6 +1,6 @@
 # Contributing
 
-Use `nix develop`, `uv sync --locked --extra browser`, and `task ci`. Enable the
+Use `nix develop`, `uv sync --locked`, and `task ci`. Enable the
 pre-commit hook with `git config core.hooksPath .githooks`. Automated tests are
 offline and independent of Root-Me accounts. Distribution checks prepare locked
 runtime dependencies from the local uv cache, install each artifact in a clean

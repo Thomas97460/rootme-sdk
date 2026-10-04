@@ -1,8 +1,13 @@
-"""Explicit optional Playwright assistance; ordinary API clients never import it."""
+"""Managed Playwright assistance for Root-Me's JavaScript-dependent website."""
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+import sys
 from base64 import b64decode, b64encode
+from pathlib import Path
 from time import monotonic
 from typing import cast
 
@@ -31,28 +36,29 @@ _FETCH_SCRIPT = """async ({url, method, body, contentType, timeout}) => {
 
 
 class BrowserSession:
-    """An explicitly opened browser kept alive for JS-dependent website operations."""
+    """An isolated managed browser kept alive for JS-dependent website operations."""
 
     def __init__(
         self,
         session: Session,
         *,
         executable_path: str | None = None,
-        headless: bool = False,
+        headless: bool | None = None,
         timeout: float = 180,
     ) -> None:
         """Open an isolated browser without using the user's ordinary browser profile."""
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError:
-            raise RootMeError(
-                "Install rootme-sdk[browser] and a Playwright Chromium browser."
-            ) from None
+        from playwright.sync_api import sync_playwright
+
+        if timeout <= 0:
+            raise ValueError("Browser timeout must be positive.")
         self.session, self.timeout = session, timeout
         self.engine = sync_playwright().start()
         try:
             self.browser = self.engine.chromium.launch(
-                headless=headless, executable_path=executable_path
+                headless=_headless(headless),
+                executable_path=_executable(
+                    self.engine.chromium.executable_path, executable_path, timeout
+                ),
             )
             agent = session.user_agent if session.user_agent != DEFAULT_AGENT else None
             self.context = self.browser.new_context(user_agent=agent)
@@ -101,6 +107,7 @@ class BrowserSession:
         """Allow manual login or fill supplied credentials, then capture the web session."""
         self.page.goto("https://www.root-me.org/?page=login&lang=en", wait_until="domcontentloaded")
         self._verification()
+        self.page.wait_for_load_state("load")
         if username is not None and password is not None and not self._authenticated():
             self.page.locator('input[name="var_login"]').fill(username)
             self.page.locator('input[name="password"]').fill(password)
@@ -207,3 +214,47 @@ class BrowserSession:
             return self._fetch(httpx.Request("GET", url))
         except PlaywrightError:
             raise NetworkError("Browser download failed.") from None
+
+
+def _headless(requested: bool | None) -> bool:
+    """Use a desktop when available so Root-Me can perform its native JS verification."""
+    if requested is not None:
+        return requested
+    return sys.platform == "linux" and not (
+        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+    )
+
+
+def _executable(default: str, requested: str | None, timeout: float) -> str:
+    """Find installed Chromium, or install its Playwright-managed binary on demand."""
+    if requested is not None:
+        return requested
+    installed = _system_chromium()
+    if installed:
+        return installed
+    if not Path(default).is_file():
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "playwright", "install", "chromium", "--no-shell"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout,
+            )
+        except (OSError, subprocess.SubprocessError):
+            raise RootMeError("Automatic Chromium setup failed.") from None
+        if not Path(default).is_file():
+            raise RootMeError("Automatic Chromium setup did not produce a browser.")
+    return default
+
+
+def _system_chromium() -> str | None:
+    """Locate common Chrome/Chromium installations without reading browser profiles."""
+    for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "msedge"):
+        if executable := shutil.which(name):
+            return executable
+    locations = [Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")]
+    for variable in ("LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)"):
+        if directory := os.environ.get(variable):
+            locations.append(Path(directory) / "Google/Chrome/Application/chrome.exe")
+    return next((str(path) for path in locations if path.is_file()), None)

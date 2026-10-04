@@ -39,9 +39,10 @@ authorship trailers to commits.
   this library has external consumers: preserve published contracts or make
   breaking changes explicit in the version and migration guidance. Update all
   internal callers and tests in the same change; no speculative legacy paths.
-- Keep runtime dependencies minimal. Optional browser assistance, if needed,
-  must not impose its tooling on ordinary HTTP/API use. The library must not
-  configure the consuming application's logging or emit secrets.
+- Keep runtime dependencies minimal. Password authentication manages JavaScript
+  assistance and browser setup automatically; callers supply only credentials.
+  Browser support is installed by default, but its runtime starts only when
+  needed. Do not configure the consuming application's logging or emit secrets.
 
 ## Tooling and quality gates
 

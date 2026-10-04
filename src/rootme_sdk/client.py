@@ -10,9 +10,11 @@ from urllib.parse import parse_qs, urlsplit
 
 import httpx
 
+from .authentication.credentials import Credentials
 from .authentication.session import API_HOST, WEB_HOST, Session, SessionCookie
 from .errors import (
     AuthenticationRequiredError,
+    HumanInterventionRequiredError,
     NetworkError,
     RateLimitedError,
     UnexpectedResponseError,
@@ -40,11 +42,14 @@ WEB_URL = f"https://{WEB_HOST}"
 
 
 class RootMeClient:
-    """A synchronous Root-Me client owning its HTTP pool and optional browser."""
+    """A synchronous Root-Me client owning its HTTP pool and managed browser."""
 
     def __init__(
         self,
+        username: str | None = None,
+        password: str | None = None,
         *,
+        credentials_file: str | Path | None = None,
         spip_session: str | None = None,
         session: Session | None = None,
         transport: httpx.BaseTransport | None = None,
@@ -52,11 +57,9 @@ class RootMeClient:
         read_retries: int = 1,
         max_retry_delay: float = 5,
     ) -> None:
-        """Accept a reusable login session; construction performs no requests."""
-        if session is not None and spip_session is not None:
-            raise ValueError("Supply a session or credentials, not both.")
-        cookies = (SessionCookie("spip_session", spip_session),) if spip_session else ()
-        self.session = session or Session(cookies=cookies)
+        """Connect from login/password or a JSON file; no credentials means anonymous."""
+        supplied = any(value is not None for value in (username, password, credentials_file))
+        self.session = _initial_session(session, spip_session, supplied)
         self._transport = Transport(
             self.session,
             transport=transport,
@@ -64,6 +67,18 @@ class RootMeClient:
             read_retries=read_retries,
             max_retry_delay=max_retry_delay,
         )
+        if supplied:
+            self._connect(username, password, credentials_file)
+
+    def _connect(
+        self, username: str | None, password: str | None, credentials_file: str | Path | None
+    ) -> None:
+        """Close resources if construction cannot complete authentication."""
+        try:
+            self.login(username, password, credentials_file=credentials_file)
+        except Exception:
+            self.close()
+            raise
 
     def __enter__(self) -> Self:
         """Enter the owned resource scope."""
@@ -84,27 +99,40 @@ class RootMeClient:
 
     def login(
         self,
-        username: str,
+        username: str | None = None,
         password: str | None = None,
         *,
         password_file: str | Path | None = None,
-        browser: bool = False,
+        credentials_file: str | Path | None = None,
+        browser: bool | None = None,
         executable_path: str | None = None,
-        headless: bool = False,
+        headless: bool | None = None,
         timeout: float = 180,
     ) -> Session:
-        """Log in with an in-memory password or local secret file, optionally using JS."""
-        secret = _password(username, password, password_file)
+        """Connect with credentials, automatically handling the site's JavaScript gate."""
+        credentials = Credentials.load(username, password, credentials_file, password_file)
+        self._close_browser()
         self.session.cookies = tuple(c for c in self.session.cookies if c.name != "spip_session")
-        if browser:
-            return self.open_browser(
-                username=username,
-                password=secret,
-                executable_path=executable_path,
-                headless=headless,
-                timeout=timeout,
-            )
-        return self._http_login(username, secret)
+        return self._authenticate(credentials, browser, executable_path, headless, timeout)
+
+    def _authenticate(
+        self,
+        credentials: Credentials,
+        browser: bool | None,
+        executable_path: str | None,
+        headless: bool | None,
+        timeout: float,
+    ) -> Session:
+        """Use Root-Me's native JavaScript login unless HTTP is explicitly requested."""
+        if browser is False:
+            return self._http_login(credentials.username, credentials.password)
+        return self.open_browser(
+            username=credentials.username,
+            password=credentials.password,
+            executable_path=executable_path,
+            headless=headless,
+            timeout=timeout,
+        )
 
     def open_browser(
         self,
@@ -112,16 +140,14 @@ class RootMeClient:
         username: str | None = None,
         password: str | None = None,
         executable_path: str | None = None,
-        headless: bool = False,
+        headless: bool | None = None,
         timeout: float = 180,
         authenticate: bool = True,
     ) -> Session:
-        """Explicitly authenticate in a browser and retain it for website operations."""
+        """Open managed JS access; ordinary password login calls this automatically."""
         from .authentication.browser import BrowserSession
 
-        if self._transport.browser:
-            self._transport.browser.close()
-            self._transport.browser = None
+        self._close_browser()
         browser = BrowserSession(
             self.session, executable_path=executable_path, headless=headless, timeout=timeout
         )
@@ -133,6 +159,12 @@ class RootMeClient:
         self._transport.browser = browser
         return result
 
+    def _close_browser(self) -> None:
+        """Discard an owned browser before a new authentication attempt."""
+        if self._transport.browser:
+            self._transport.browser.close()
+            self._transport.browser = None
+
     def logout(self) -> None:
         """Invalidate the web session when present, then always erase local credentials."""
         try:
@@ -140,9 +172,7 @@ class RootMeClient:
                 self._transport.request("GET", f"{WEB_URL}/?action=logout", mutation=True)
         finally:
             self.session.cookies = ()
-            if self._transport.browser:
-                self._transport.browser.close()
-                self._transport.browser = None
+            self._close_browser()
 
     def get_challenge(self, reference: int | str) -> Challenge:
         """Read API metadata by ID, or a complete web challenge by its URL."""
@@ -199,13 +229,19 @@ class RootMeClient:
             and link.label
         )
 
-    def _get_page(self, url: str) -> WebPage:
+    def _get_page(self, url: str, *, allow_browser: bool = True) -> WebPage:
         """Read an anonymous or authenticated page and discover its forms and links."""
         if urlsplit(platform_url(url)).hostname != WEB_HOST:
             raise ValueError("Website pages must use the website host.")
         if "action" in parse_qs(urlsplit(url).query):
             raise ValueError("Action links cannot be used for page reads.")
-        response = self._transport.request("GET", url)
+        try:
+            response = self._transport.request("GET", url)
+        except HumanInterventionRequiredError:
+            if not allow_browser or self._transport.browser:
+                raise
+            self.open_browser(authenticate=False)
+            response = self._transport.request("GET", url)
         return web.page(response.text, str(response.url))
 
     def preferences(self, *, language: str = "en") -> WebPage:
@@ -232,7 +268,9 @@ class RootMeClient:
         files: Mapping[str, Upload] | None = None,
     ) -> WebPage:
         """Refresh tokens and submit one explicitly chosen form, including file uploads."""
-        current = _find_form(self._get_page(form.page_url), form.name)
+        current = _find_form(
+            self._get_page(form.page_url, allow_browser=form.name != "login"), form.name
+        )
         values = web.form_values(current, changes)
         allowed = {f.name for f in current.fields if f.kind == "file"}
         if files and not set(files).issubset(allowed):
@@ -289,7 +327,7 @@ class RootMeClient:
 
     def _http_login(self, username: str, password: str) -> Session:
         """Verify password authentication against the returned account menu."""
-        document = self._get_page(f"{WEB_URL}/?page=login&lang=en")
+        document = self._get_page(f"{WEB_URL}/?page=login&lang=en", allow_browser=False)
         form = _find_form(document, "login")
         result = self._submit_form(form, {"var_login": username, "password": password})
         logged_in = any(
@@ -345,14 +383,17 @@ class RootMeClient:
             url, params = result.next_url or "", None
 
 
-def _password(username: str, password: str | None, path: str | Path | None) -> str:
-    """Read a local secret with one terminal newline removed, never retaining its path."""
-    if not username or (password is None) == (path is None):
-        raise ValueError("Supply a username and exactly one password source.")
-    result = Path(path).read_text().removesuffix("\n").removesuffix("\r") if path else password
-    if not result:
-        raise ValueError("Password must be nonempty.")
-    return result
+def _initial_session(session: Session | None, cookie: str | None, supplied: bool) -> Session:
+    """Keep explicit session reuse separate from supplied account credentials."""
+    if (
+        session is not None
+        and cookie is not None
+        or supplied
+        and (session is not None or cookie is not None)
+    ):
+        raise ValueError("Supply login/password, a session or a session cookie, not several.")
+    cookies = (SessionCookie("spip_session", cookie),) if cookie else ()
+    return session or Session(cookies=cookies)
 
 
 def _find_form(document: WebPage, name: str) -> WebForm:

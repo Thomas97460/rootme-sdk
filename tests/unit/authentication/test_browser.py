@@ -1,5 +1,6 @@
-import builtins
+import subprocess
 from base64 import b64decode, b64encode
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import httpx
@@ -16,7 +17,12 @@ from rootme_sdk import (
     SessionCookie,
     UnexpectedResponseError,
 )
-from rootme_sdk.authentication.browser import BrowserSession
+from rootme_sdk.authentication.browser import (
+    BrowserSession,
+    _executable,
+    _headless,
+    _system_chromium,
+)
 
 WEB = "https://www.root-me.org/"
 
@@ -24,6 +30,10 @@ WEB = "https://www.root-me.org/"
 @pytest.fixture
 def engine(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     instance = MagicMock()
+    monkeypatch.setattr(
+        "rootme_sdk.authentication.browser._executable",
+        lambda default, requested, timeout: requested or "synthetic-chromium",
+    )
     monkeypatch.setattr(
         "playwright.sync_api.sync_playwright", lambda: MagicMock(start=lambda: instance)
     )
@@ -47,17 +57,10 @@ def cookie(value: str = "test-session", expires: int = -1) -> dict[str, object]:
     }
 
 
-def test_optional_extra_is_required_only_when_opened(monkeypatch: pytest.MonkeyPatch) -> None:
-    original = builtins.__import__
-
-    def unavailable(name: str, *args: object, **kwargs: object) -> object:
-        if name == "playwright.sync_api":
-            raise ImportError
-        return original(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", unavailable)
-    with pytest.raises(RootMeError, match=r"rootme-sdk\[browser\]"):
-        BrowserSession(Session())
+def test_invalid_browser_timeout(engine: MagicMock) -> None:
+    with pytest.raises(ValueError, match="positive"):
+        BrowserSession(Session(), timeout=0)
+    engine.chromium.launch.assert_not_called()
 
 
 def test_imported_cookie_scope_and_startup_cleanup(engine: MagicMock) -> None:
@@ -106,6 +109,7 @@ def test_browser_password_fill_and_bounded_login_poll(
     assert adapter.authenticate("Example", "synthetic-password").spip_session == "test-session"
     fills = [call.args[0] for call in adapter.page.locator.return_value.fill.call_args_list]
     assert fills == ["Example", "synthetic-password"]
+    adapter.page.wait_for_load_state.assert_called_once_with("load")
     adapter.page.wait_for_timeout.assert_called_once_with(250)
     adapter.close()
 
@@ -186,3 +190,89 @@ def test_binary_download(engine: MagicMock) -> None:
     with pytest.raises(ValueError):
         adapter.download("https://api.www.root-me.org/file")
     adapter.close()
+
+
+def test_automatic_display_selection(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("rootme_sdk.authentication.browser.sys.platform", "linux")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    assert _headless(None) and _headless(True)
+    assert not _headless(False)
+    monkeypatch.setenv("DISPLAY", ":synthetic")
+    assert not _headless(None)
+    monkeypatch.delenv("DISPLAY")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "synthetic")
+    assert not _headless(None)
+    monkeypatch.setattr("rootme_sdk.authentication.browser.sys.platform", "darwin")
+    monkeypatch.delenv("WAYLAND_DISPLAY")
+    assert not _headless(None)
+
+
+def test_system_chromium_detection(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("rootme_sdk.authentication.browser.shutil.which", lambda name: "/chromium")
+    assert _system_chromium() == "/chromium"
+    monkeypatch.setattr("rootme_sdk.authentication.browser.shutil.which", lambda name: None)
+    for variable in ("LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)"):
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setattr(Path, "is_file", lambda path: str(path).startswith("/Applications/"))
+    assert _system_chromium().endswith("Google Chrome")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(Path, "is_file", lambda path: path.name == "chrome.exe")
+    assert _system_chromium() == str(tmp_path / "Google/Chrome/Application/chrome.exe")
+    monkeypatch.setattr(Path, "is_file", lambda path: False)
+    assert _system_chromium() is None
+
+
+def test_explicit_system_and_cached_executables(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    install = MagicMock()
+    monkeypatch.setattr("rootme_sdk.authentication.browser.subprocess.run", install)
+    monkeypatch.setattr("rootme_sdk.authentication.browser._system_chromium", lambda: "/system")
+    assert _executable("/missing", "/chosen", 1) == "/chosen"
+    assert _executable("/missing", None, 1) == "/system"
+    monkeypatch.setattr("rootme_sdk.authentication.browser._system_chromium", lambda: None)
+    cached = tmp_path / "chromium"
+    cached.touch()
+    assert _executable(str(cached), None, 1) == str(cached)
+    install.assert_not_called()
+
+
+def test_missing_browser_is_installed_automatically(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("rootme_sdk.authentication.browser._system_chromium", lambda: None)
+    target = tmp_path / "chromium"
+    install = MagicMock(side_effect=lambda *args, **kwargs: target.touch())
+    monkeypatch.setattr("rootme_sdk.authentication.browser.subprocess.run", install)
+    assert _executable(str(target), None, 10) == str(target)
+    assert install.call_args.args[0][1:] == [
+        "-m",
+        "playwright",
+        "install",
+        "chromium",
+        "--no-shell",
+    ]
+    assert install.call_args.kwargs["timeout"] == 10
+
+
+@pytest.mark.parametrize("error", [OSError("private"), subprocess.TimeoutExpired("private", 1)])
+def test_browser_installation_failure_is_private(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, error: Exception
+) -> None:
+    monkeypatch.setattr("rootme_sdk.authentication.browser._system_chromium", lambda: None)
+    monkeypatch.setattr(
+        "rootme_sdk.authentication.browser.subprocess.run", MagicMock(side_effect=error)
+    )
+    with pytest.raises(RootMeError) as result:
+        _executable(str(tmp_path / "missing"), None, 1)
+    assert "private" not in str(result.value)
+
+
+def test_incomplete_browser_download_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("rootme_sdk.authentication.browser._system_chromium", lambda: None)
+    monkeypatch.setattr("rootme_sdk.authentication.browser.subprocess.run", MagicMock())
+    with pytest.raises(RootMeError, match="did not produce"):
+        _executable(str(tmp_path / "missing"), None, 1)
