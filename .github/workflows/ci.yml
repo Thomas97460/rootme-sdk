@@ -14,11 +14,11 @@ jobs:
       matrix:
         python: ['3.13', '3.14']
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-python@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
       - run: uv sync --locked --extra browser
@@ -28,9 +28,10 @@ jobs:
       - run: uv run interrogate -c pyproject.toml src/rootme_sdk
       - run: uv run pytest tests/unit --cov=rootme_sdk --cov-report=term-missing --cov-fail-under=100
       - run: uv run pytest tests/scenarios
+      - run: uv run pytest tests/packaging
       - run: uv build --clear
       - run: uv run twine check dist/*
-      - run: uv run python scripts/check_distributions.py
+      - run: uv run python -m scripts.check_distributions
   lint-pr-title:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -46,3 +47,24 @@ jobs:
           if not re.fullmatch(pattern, os.environ['PR_TITLE']):
               raise SystemExit('PR title must be a Conventional Commit')
           PY
+  portability:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+        python: ['3.13', '3.14']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run pytest tests/unit --cov=rootme_sdk --cov-report=term-missing --cov-fail-under=100
+      - run: uv run pytest tests/scenarios tests/packaging
+      - run: uv build --clear
+      - run: uv run twine check dist/*
+      - run: uv run python -m scripts.check_distributions

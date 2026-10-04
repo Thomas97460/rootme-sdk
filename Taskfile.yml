@@ -14,8 +14,17 @@ tasks:
     cmds: [uv run pytest tests/unit --cov=rootme_sdk --cov-report=term-missing --cov-fail-under=100]
   test-scenarios:
     cmds: [uv run pytest tests/scenarios]
+  test-packaging:
+    cmds: [uv run pytest tests/packaging]
+  audit:
+    cmds:
+      - uv export --locked --no-dev --no-emit-project --no-hashes -o .audit-requirements.txt
+      - defer: uv run python -c 'from pathlib import Path; Path(".audit-requirements.txt").unlink(missing_ok=True)'
+      - uv run pip-audit --strict --disable-pip --no-deps -r .audit-requirements.txt
+  secrets:
+    cmds: [gitleaks git --redact --no-banner --log-opts=--all]
   build:
-    cmds: [uv build --clear, uv run twine check dist/*, uv run python scripts/check_distributions.py]
+    cmds: [uv build --clear, uv run twine check dist/*, uv run python -m scripts.check_distributions]
   ci:
     cmds:
       - task: format-check
@@ -24,4 +33,5 @@ tasks:
       - task: docstrings
       - task: test-unit
       - task: test-scenarios
+      - task: test-packaging
       - task: build

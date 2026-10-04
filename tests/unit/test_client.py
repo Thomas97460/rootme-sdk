@@ -160,7 +160,7 @@ def test_boundary_validation_and_missing_api_details() -> None:
 
 
 def test_web_read_categories_and_download(fixture_html: Path, tmp_path: Path) -> None:
-    html = (fixture_html / "challenge.html").read_text()
+    html = (fixture_html / "challenge.html").read_text(encoding="utf-8")
     catalogue = (
         '<a href="/en/Challenges/Example/">Example</a><a href="/en/Challenges/E'
         'xample/Test">Challenge</a><a href="/en/Challenges/">Index</a><a href="'
@@ -243,7 +243,7 @@ def test_constructor_authentication_failure_releases_http_pool(
 ) -> None:
     close = MagicMock()
     monkeypatch.setattr("rootme_sdk.transport.Transport.close", close)
-    login = (fixture_html / "login.html").read_text()
+    login = (fixture_html / "login.html").read_text(encoding="utf-8")
     server = MagicMock(return_value=httpx.Response(200, text=login))
     browser = MagicMock()
     browser.authenticate.side_effect = AuthenticationRequiredError("Login rejected.")
@@ -271,7 +271,7 @@ def test_new_login_discards_old_browser_session(
     server = MagicMock(return_value=httpx.Response(200, text='<div id="anubis_version"></div>'))
     browser.request.return_value = httpx.Response(
         200,
-        text=(fixture_html / "challenge.html").read_text(),
+        text=(fixture_html / "challenge.html").read_text(encoding="utf-8"),
         request=httpx.Request("GET", CHALLENGE),
     )
     with RootMeClient(spip_session="old-session", transport=httpx.MockTransport(server)) as client:
@@ -311,7 +311,7 @@ def test_public_js_reads_are_automatic_and_browser_gate_is_not_replayed(
     with RootMeClient(transport=httpx.MockTransport(server)) as client:
         browser.request.return_value = httpx.Response(
             200,
-            text=(fixture_html / "challenge.html").read_text(),
+            text=(fixture_html / "challenge.html").read_text(encoding="utf-8"),
             request=httpx.Request("GET", CHALLENGE),
         )
         assert client.read_challenge(CHALLENGE).score == 10
@@ -346,7 +346,7 @@ def test_logout_clears_state_even_on_failure() -> None:
 
 
 def test_preferences_upload(fixture_html: Path) -> None:
-    html = (fixture_html / "preferences.html").read_text()
+    html = (fixture_html / "preferences.html").read_text(encoding="utf-8")
     calls: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -405,7 +405,7 @@ def test_get_form_and_missing_or_ambiguous_form() -> None:
 def test_submit_once_and_actual_outcome(
     fixture_html: Path, outcome: str, status: SubmissionStatus
 ) -> None:
-    html = (fixture_html / "challenge.html").read_text()
+    html = (fixture_html / "challenge.html").read_text(encoding="utf-8")
     calls: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:

@@ -8,8 +8,24 @@ environment and verify public exports, version and typing information.
 
 Branch from current main, open a Conventional Commit PR and squash merge after
 checks pass. Required checks are quality (3.13), quality (3.14) and lint-pr-title.
+Also wait for Windows/macOS portability, dependency audit and secret scan checks.
 Governance changes and merges touching CODEOWNERS paths require explicit approval
 in the conversation, as defined in AGENTS.md.
+
+## Without Nix
+
+Install Python 3.13 or 3.14, [uv](https://docs.astral.sh/uv/getting-started/installation/)
+and [Task](https://taskfile.dev/docs/installation), then run the same `uv sync --locked`
+and `task ci` commands. Nix is only a development environment, never a runtime
+requirement. Use Google-style docstrings and the self-contained [AGENTS.md](AGENTS.md)
+coding rules. The public API reference is [API.md](API.md).
+
+`task ci` includes offline packaging guard tests. Run `task audit` separately to
+check the locked runtime dependencies against published vulnerability advisories
+(network access required). Run `task secrets` with Gitleaks installed to scan the
+complete local Git history with redacted findings. Both tools are in the devShell;
+security CI repeats these checks weekly and on changes. Dependency updates arrive
+as ordinary Dependabot PRs and must pass the same checks.
 
 ## Releases
 
@@ -35,7 +51,9 @@ Configure a [Pending Trusted Publisher](https://docs.pypi.org/trusted-publishers
 - GitHub owner/repository: Thomas97460/rootme-sdk.
 - Workflow: release.yml; GitHub environment: pypi.
 
-Create that environment and set PUBLISH_PYPI=true. The workflow uses OIDC without
+After the decision to open the repository, create that environment and set
+PUBLISH_PYPI=true. The workflow uses OIDC without
 stored long-lived tokens and publishes the same artifacts as GitHub. Once enabled,
 release verification also checks the PyPI version and a clean installation from
-PyPI. PyPI artifacts are public even when their source repository remains private.
+PyPI. This repository's workflow also requires public repository visibility.
+See [PUBLISHING.md](PUBLISHING.md) for the remaining owner actions and release procedure.

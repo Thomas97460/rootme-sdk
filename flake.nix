@@ -9,7 +9,7 @@
         let pkgs = import nixpkgs { inherit system; };
         in {
           default = pkgs.mkShell {
-            packages = [ pkgs.python314 pkgs.uv pkgs.go-task pkgs.gh pkgs.ripgrep pkgs.nodejs ];
+            packages = [ pkgs.python314 pkgs.uv pkgs.go-task pkgs.gh pkgs.ripgrep pkgs.nodejs pkgs.gitleaks ];
             UV_PYTHON = pkgs.python314.interpreter;
             UV_PYTHON_DOWNLOADS = "never";
             PLAYWRIGHT_NODEJS_PATH = "${pkgs.nodejs}/bin/node";

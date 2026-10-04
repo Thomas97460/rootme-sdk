@@ -1,8 +1,14 @@
 # rootme-sdk
 
-A small, typed Python client for [Root-Me](https://www.root-me.org/): automatic
+A small, unofficial typed Python client for [Root-Me](https://www.root-me.org/): automatic
 password login, reusable sessions, account information/preferences, challenge discovery,
 statements, attachments and answer submission. Python 3.13 and 3.14 are tested.
+
+This project is not affiliated with Root-Me. It is **alpha software**: automatic
+login has succeeded with both credential sources, but intermittent fresh-session
+verification failures remain unresolved. See the
+[observed limitations](https://github.com/Thomas97460/rootme-sdk/blob/main/CAPABILITIES.md#limits).
+Use it with an existing account and respect Root-Me's usage rules and rate limits.
 
 ## Install
 
@@ -11,6 +17,12 @@ Install the checkout, or a wheel downloaded from a GitHub release:
 
 ```bash
 pip install .
+```
+
+After the maintainer enables the first PyPI publication, installation will be:
+
+```bash
+pip install rootme-sdk
 ```
 
 Browser support is included. When JavaScript is required, the SDK uses an installed
@@ -48,6 +60,10 @@ in an isolated browser automatically. It fills the
 credentials and keeps the browser alive for subsequent operations. Passwords are
 not retained by the client or saved in sessions. There is no API-key authentication.
 
+Credential JSON uses UTF-8. On Windows, put credentials and saved sessions in a
+directory whose access permissions allow only your user account; POSIX modes do
+not control Windows ACLs. Never commit these files.
+
 Password login always opens a graphical Chrome/Chromium window and fills the
 credentials automatically. No manual login is required. A working desktop display
 and Chromium's system dependencies are required; Linux needs `DISPLAY`. The SDK
@@ -55,6 +71,13 @@ raises `BrowserUnavailableError` before browser startup when that display is mis
 It waits for native login completion and verifies an account-only page before
 returning. Platform verification failures, network failures and rate limits remain
 explicit errors. There is no headless or HTTP-only login fallback.
+
+Linux needs a desktop session, with Chrome/Chromium installed or the
+[Playwright system dependencies](https://playwright.dev/python/docs/browsers#system-dependencies).
+macOS and Windows use the same graphical flow. CI checks offline behavior and
+package installation on all three systems; it does not validate live authentication
+on each. Browser download needs network access on first use. A server without a
+graphical display cannot perform password login.
 
 `get_challenge(id)` reads official API metadata through the authenticated session;
 `read_challenge(id_or_url)` reads the full website statement and resource links.
@@ -113,7 +136,9 @@ verification URL; `RateLimitedError.retry_after` carries the waiting interval.
 Reconnect explicitly using `login` when the current session is rejected. Failed
 login attempts are never silently replayed through another mechanism.
 
-See [CAPABILITIES.md](CAPABILITIES.md) for observed behavior and limitations.
+See the [API reference](https://github.com/Thomas97460/rootme-sdk/blob/main/API.md)
+and [capabilities](https://github.com/Thomas97460/rootme-sdk/blob/main/CAPABILITIES.md)
+for returned types, errors, observed behavior and limitations.
 Tests use synthetic fixtures and no live account. Account preference mutations
 have not been manually exercised.
 
@@ -131,10 +156,11 @@ offline scenarios, and clean offline wheel/source installation checks.
 `authentication/` owns sessions and browser assistance; `parsers/` owns API JSON
 and website HTML. The public client coordinates them through the HTTP transport.
 
-An approved `vX.Y.Z` tag publishes the wheel and source archive to a private GitHub
+An approved `vX.Y.Z` tag publishes the wheel and source archive to a GitHub
 release. PyPI remains disabled unless explicitly enabled after publisher setup.
-See [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md) and
-[REQUIREMENTS.md](REQUIREMENTS.md).
+The workflow also requires a public repository before publishing to PyPI.
+See [contributing](https://github.com/Thomas97460/rootme-sdk/blob/main/CONTRIBUTING.md)
+and [publication preparation](https://github.com/Thomas97460/rootme-sdk/blob/main/PUBLISHING.md).
 
 Since 0.3.0, graphical browser login is the only password authentication path.
 The constructor still accepts credentials directly or from JSON. Remove calls to

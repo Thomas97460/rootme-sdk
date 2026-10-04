@@ -77,7 +77,7 @@ class Session:
         )
 
     def save(self, path: str | Path) -> None:
-        """Atomically persist state in a file readable only by its owner."""
+        """Atomically persist state, with owner-only file permissions on POSIX."""
         target = Path(path)
         payload = {
             "version": 1,
@@ -95,7 +95,7 @@ class Session:
         }
         descriptor, temporary = tempfile.mkstemp(dir=target.parent)
         try:
-            with os.fdopen(descriptor, "w") as stream:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
                 json.dump(payload, stream)
             os.replace(temporary, target)
         finally:
@@ -105,7 +105,7 @@ class Session:
     def load(cls, path: str | Path) -> Session:
         """Read and validate an SDK state file without echoing invalid contents."""
         try:
-            data = json.loads(Path(path).read_text())
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
             if data["version"] != 1:
                 raise ValueError
             return _state(data)
@@ -116,7 +116,7 @@ class Session:
     def from_browser_state(cls, path: str | Path, *, user_agent: str) -> Session:
         """Import Playwright cookies while discarding all non-platform cookies."""
         try:
-            data = json.loads(Path(path).read_text())
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
             return cls(cookies=_cookies(data["cookies"]), user_agent=user_agent)
         except (KeyError, TypeError, ValueError):
             raise UnexpectedResponseError("Invalid browser session file.") from None
