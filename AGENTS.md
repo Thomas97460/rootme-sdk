@@ -40,7 +40,10 @@ authorship trailers to commits.
   breaking changes explicit in the version and migration guidance. Update all
   internal callers and tests in the same change; no speculative legacy paths.
 - Keep runtime dependencies minimal. Password authentication manages JavaScript
-  assistance and browser setup automatically; callers supply only credentials.
+  assistance and headed browser setup automatically; callers supply only credentials.
+  Require a working graphical display. Do not reintroduce headless, HTTP-only or
+  manual login paths. Await native redirects/AJAX completion and verify account-only
+  access before reporting authentication success; a cookie alone is insufficient.
   Browser support is installed by default, but its runtime starts only when
   needed. Do not configure the consuming application's logging or emit secrets.
 

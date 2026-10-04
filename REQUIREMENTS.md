@@ -21,6 +21,11 @@ management are outside the scope. Follow [AGENTS.md](AGENTS.md).
   discovery/setup and credential entry. Keep the isolated browser/session alive
   for subsequent operations. Do not prompt on stdin. Expose a meaningful error
   if native platform verification cannot complete without human intervention.
+- Use only a graphical browser for password authentication and JavaScript
+  assistance. Require a working display and system browser dependencies; fail
+  clearly when unavailable. Do not offer headless, HTTP-only or manual login
+  alternatives. Wait for native login completion and verify account-only access
+  before returning an authenticated client; a cookie alone is insufficient.
 - Allow anonymous website reads where Root-Me permits them. Distinguish missing,
   expired/rejected authentication, denied access and human intervention.
 - Never forward credentials to challenge services or unrelated hosts, including
@@ -65,8 +70,10 @@ management are outside the scope. Follow [AGENTS.md](AGENTS.md).
 The [official API](https://api.www.root-me.org/?lang=en) documents challenge and
 account data through a spip_session cookie. Answer submission uses the website's
 validation_challenge form and passe control. A fresh supplied-password login
-worked in a visible browser without human input; saved-session reuse then worked
-headlessly. Both constructor credential sources were verified without human input,
-including preferences and challenge reads. API challenge links can be relative
-website paths. A fresh headless login encountered Anubis. Live already-solved
-feedback uses a success class inside the challenge validation form.
+worked in a graphical browser without human input. Both constructor credential
+sources were verified without human input, including preferences and challenge
+reads. Native login responses can use redirects or AJAX; keep the login page alive
+until completion. Browser response bodies are already decompressed. API challenge
+links can be relative website paths. A fresh headless login encountered Anubis,
+so that authentication route is excluded. Live already-solved feedback uses a
+success class inside the challenge validation form.

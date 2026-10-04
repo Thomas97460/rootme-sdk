@@ -8,20 +8,25 @@ import subprocess
 import sys
 from base64 import b64decode, b64encode
 from pathlib import Path
-from time import monotonic
-from typing import cast
+from typing import TYPE_CHECKING, cast
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
 
 from ..errors import (
     AuthenticationRequiredError,
+    BrowserUnavailableError,
     HumanInterventionRequiredError,
     NetworkError,
     RootMeError,
     UnexpectedResponseError,
 )
+from ..responses import check_response
 from ..urls import platform_url
 from .session import DEFAULT_AGENT, WEB_HOST, Session, SessionCookie
+
+if TYPE_CHECKING:
+    from playwright.sync_api import Response as BrowserResponse
 
 _FETCH_SCRIPT = """async ({url, method, body, contentType, timeout}) => {
               const bytes = body === null ? undefined
@@ -31,7 +36,8 @@ _FETCH_SCRIPT = """async ({url, method, body, contentType, timeout}) => {
                 signal: AbortSignal.timeout(timeout), headers: {'Content-Type': contentType}});
               const result = new Uint8Array(await r.arrayBuffer());
               let text = ''; for (const value of result) text += String.fromCharCode(value);
-              return {status: r.status, body: btoa(text)};
+              return {status: r.status, body: btoa(text),
+                retryAfter: r.headers.get('Retry-After') || ''};
             }"""
 
 
@@ -43,30 +49,44 @@ class BrowserSession:
         session: Session,
         *,
         executable_path: str | None = None,
-        headless: bool | None = None,
         timeout: float = 180,
     ) -> None:
         """Open an isolated browser without using the user's ordinary browser profile."""
+        from playwright.sync_api import Error as PlaywrightError
         from playwright.sync_api import sync_playwright
 
         if timeout <= 0:
             raise ValueError("Browser timeout must be positive.")
+        _require_display()
         self.session, self.timeout = session, timeout
-        self.engine = sync_playwright().start()
         try:
-            self.browser = self.engine.chromium.launch(
-                headless=_headless(headless),
-                executable_path=_executable(
-                    self.engine.chromium.executable_path, executable_path, timeout
-                ),
-            )
-            agent = session.user_agent if session.user_agent != DEFAULT_AGENT else None
-            self.context = self.browser.new_context(user_agent=agent)
-            self._install_cookies()
-            self.page = self.context.new_page()
+            self.engine = sync_playwright().start()
+        except PlaywrightError:
+            raise BrowserUnavailableError("Could not start the browser runtime.") from None
+        try:
+            self._start(executable_path)
         except Exception:
             self.engine.stop()
             raise
+
+    def _start(self, executable_path: str | None) -> None:
+        """Start only headed Chromium and translate expected browser startup failures."""
+        from playwright.sync_api import Error as PlaywrightError
+
+        try:
+            executable = _executable(
+                self.engine.chromium.executable_path, executable_path, self.timeout
+            )
+            self.browser = self.engine.chromium.launch(headless=False, executable_path=executable)
+            agent = self.session.user_agent if self.session.user_agent != DEFAULT_AGENT else None
+            self.context = self.browser.new_context(user_agent=agent)
+            self._install_cookies()
+            self.page = self.context.new_page()
+            self.page.set_default_timeout(self.timeout * 1000)
+        except PlaywrightError:
+            raise BrowserUnavailableError(
+                "Could not start headed Chromium; check the display and system dependencies."
+            ) from None
 
     def _install_cookies(self) -> None:
         """Constrain every imported browser cookie to the website host."""
@@ -94,7 +114,7 @@ class BrowserSession:
         self.request(httpx.Request("GET", "https://www.root-me.org/"))
         return self.session
 
-    def authenticate(self, username: str | None = None, password: str | None = None) -> Session:
+    def authenticate(self, username: str, password: str) -> Session:
         """Authenticate without allowing Playwright call logs to reveal supplied passwords."""
         from playwright.sync_api import Error as PlaywrightError
 
@@ -103,32 +123,58 @@ class BrowserSession:
         except PlaywrightError:
             raise NetworkError("Browser authentication failed; retry explicitly.") from None
 
-    def _authenticate(self, username: str | None = None, password: str | None = None) -> Session:
-        """Allow manual login or fill supplied credentials, then capture the web session."""
-        self.page.goto("https://www.root-me.org/?page=login&lang=en", wait_until="domcontentloaded")
-        self._verification()
+    def _authenticate(self, username: str, password: str) -> Session:
+        """Await the native login response and verify account access independently of UI."""
+        check_response(self._get(httpx.Request("GET", f"https://{WEB_HOST}/?page=login&lang=en")))
         self.page.wait_for_load_state("load")
-        if username is not None and password is not None and not self._authenticated():
-            self.page.locator('input[name="var_login"]').fill(username)
-            self.page.locator('input[name="password"]').fill(password)
+        self._settle_login()
+        self.page.locator('#formulaire_login input[name="var_login"]').fill(username)
+        self.page.locator('#formulaire_login input[name="password"]').fill(password)
+        self._settle_login()
+        with self.page.expect_response(_login_response, timeout=self.timeout * 1000) as pending:
             self.page.locator('#formulaire_login input[type="submit"]').click()
-        deadline = monotonic() + self.timeout
-        while monotonic() < deadline:
-            self._sync()
-            if self._authenticated():
-                return self.session
-            self.page.wait_for_timeout(250)
-        raise AuthenticationRequiredError(
-            "Browser login did not produce an authenticated session before timeout.",
-            reason="rejected" if username is not None else "missing",
+        self._complete_login(pending.value)
+        self._confirm_login()
+        return self.session
+
+    def _complete_login(self, response: BrowserResponse) -> None:
+        """Await decoded AJAX responses or native redirects without relying on menu updates."""
+        content = b"" if 300 <= response.status < 400 else response.body()
+        check_response(
+            httpx.Response(
+                response.status,
+                headers=_decoded_headers(response),
+                content=content,
+                request=httpx.Request("POST", response.url),
+            )
+        )
+        if 300 <= response.status < 400:
+            target = platform_url(urljoin(response.url, response.all_headers().get("location", "")))
+            self.page.wait_for_url(
+                target, wait_until="domcontentloaded", timeout=self.timeout * 1000
+            )
+        self._settle_login()
+
+    def _settle_login(self) -> None:
+        """Await page initialization and pending identity AJAX before advancing login."""
+        self.page.wait_for_function(
+            "window.jQuery && jQuery.isReady && jQuery.active === 0 && "
+            "(!window.login_info || !login_info.informe_auteur_en_cours)",
+            timeout=self.timeout * 1000,
         )
 
-    def _authenticated(self) -> bool:
-        """Require both a current cookie and the observed authenticated account menu."""
-        return (
-            bool(self.session.spip_session)
-            and self.page.locator('a[href*="action=logout"]').count() > 0
+    def _confirm_login(self) -> None:
+        """Verify account-only access within the browser tab that completed authentication."""
+        check_response(
+            self._get(httpx.Request("GET", f"https://{WEB_HOST}/?page=preferences&lang=en"))
         )
+        editable = self.page.locator(
+            'input[name="formulaire_action"][value="modifier_auteur"]'
+        ).count()
+        if not self.session.spip_session or not editable:
+            raise AuthenticationRequiredError(
+                "Login did not grant account access.", reason="rejected"
+            )
 
     def _verification(self) -> None:
         """Wait for the site's own JavaScript or human verification to finish."""
@@ -177,7 +223,10 @@ class BrowserSession:
         if response is None:
             raise UnexpectedResponseError("Browser navigation produced no response.")
         return httpx.Response(
-            response.status, text=self.page.content(), request=httpx.Request("GET", self.page.url)
+            response.status,
+            headers=_decoded_headers(response),
+            text=self.page.content(),
+            request=httpx.Request("GET", self.page.url),
         )
 
     def _fetch(self, request: httpx.Request) -> httpx.Response:
@@ -199,8 +248,12 @@ class BrowserSession:
         self._sync()
         if data["status"] == 0:
             raise UnexpectedResponseError("Write redirected; its outcome requires confirmation.")
+        headers = {"Retry-After": str(data["retryAfter"])} if data.get("retryAfter") else {}
         return httpx.Response(
-            int(data["status"]), content=b64decode(str(data["body"])), request=request
+            int(data["status"]),
+            headers=headers,
+            content=b64decode(str(data["body"])),
+            request=request,
         )
 
     def download(self, url: str) -> httpx.Response:
@@ -216,12 +269,27 @@ class BrowserSession:
             raise NetworkError("Browser download failed.") from None
 
 
-def _headless(requested: bool | None) -> bool:
-    """Use a desktop when available so Root-Me can perform its native JS verification."""
-    if requested is not None:
-        return requested
-    return sys.platform == "linux" and not (
-        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+def _decoded_headers(response: BrowserResponse) -> dict[str, str]:
+    """Preserve rate-limit headers without decoding browser response bodies a second time."""
+    return {
+        name: value
+        for name, value in response.all_headers().items()
+        if name.lower() not in {"content-encoding", "content-length"}
+    }
+
+
+def _require_display() -> None:
+    """Reject unsupported Linux environments before starting or downloading a browser."""
+    if sys.platform == "linux" and not os.environ.get("DISPLAY"):
+        raise BrowserUnavailableError("Headed Chromium requires an X11 display (DISPLAY) on Linux.")
+
+
+def _login_response(response: BrowserResponse) -> bool:
+    """Identify the website's native login POST in the isolated page."""
+    return (
+        response.request.method == "POST"
+        and urlsplit(response.url).hostname == WEB_HOST
+        and parse_qs(response.request.post_data or "").get("formulaire_action") == ["login"]
     )
 
 

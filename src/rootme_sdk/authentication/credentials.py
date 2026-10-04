@@ -27,17 +27,12 @@ class Credentials:
         username: str | None,
         password: str | None,
         credentials_file: str | Path | None,
-        password_file: str | Path | None = None,
     ) -> Credentials:
         """Read exactly one credential source without retaining its file path."""
         if credentials_file is not None:
-            if username is not None or password is not None or password_file is not None:
+            if username is not None or password is not None:
                 raise ValueError("Supply a credentials file or login/password, not both.")
             return cls._from_file(credentials_file)
-        if (password is None) == (password_file is None):
-            raise ValueError("Supply a login and exactly one password source.")
-        if password_file is not None:
-            password = Path(password_file).read_text().removesuffix("\n").removesuffix("\r")
         if username is None or password is None:
             raise ValueError("Supply both login and password.")
         return cls(username, password)

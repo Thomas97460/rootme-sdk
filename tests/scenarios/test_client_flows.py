@@ -13,23 +13,14 @@ WEB = "https://www.root-me.org/"
 CHALLENGE = WEB + "en/Challenges/Example/Test"
 
 
-def test_password_login_read_download_submit_and_logout(fixture_html: Path) -> None:
+def test_reusable_session_read_download_submit_and_logout(fixture_html: Path) -> None:
     calls: list[httpx.Request] = []
-    login = (fixture_html / "login.html").read_text()
     challenge = (fixture_html / "challenge.html").read_text()
 
     def server(request: httpx.Request) -> httpx.Response:
         calls.append(request)
         if request.url.params.get("action") == "logout":
             return httpx.Response(200, text="Logged out")
-        if request.url.params.get("page") == "login":
-            if request.method == "GET":
-                return httpx.Response(200, text=login)
-            return httpx.Response(
-                200,
-                text='<a href="/?action=logout">Logout</a>',
-                headers={"set-cookie": "spip_session=test-session; Path=/"},
-            )
         if request.url.host == "api.www.root-me.org":
             assert request.headers["cookie"] == "spip_session=test-session"
             return httpx.Response(200, json=[{"titre": "Example", "url_challenge": CHALLENGE}])
@@ -46,8 +37,7 @@ def test_password_login_read_download_submit_and_logout(fixture_html: Path) -> N
             )
         return httpx.Response(200, text=challenge)
 
-    with RootMeClient(transport=httpx.MockTransport(server)) as client:
-        client.login("Example", "synthetic-password", browser=False)
+    with RootMeClient(spip_session="test-session", transport=httpx.MockTransport(server)) as client:
         result = client.read_challenge(7)
         assert "Read the supplied file" in result.statement
         assert client.download(result.resources[0]) == b"synthetic-archive"
@@ -56,7 +46,7 @@ def test_password_login_read_download_submit_and_logout(fixture_html: Path) -> N
         )
         client.logout()
         assert client.session.spip_session is None
-    assert sum(request.method == "POST" for request in calls) == 2
+    assert sum(request.method == "POST" for request in calls) == 1
 
 
 def test_anonymous_challenge_read_requires_login_for_submission(fixture_html: Path) -> None:
@@ -78,6 +68,7 @@ def test_anonymous_challenge_read_requires_login_for_submission(fixture_html: Pa
 def test_file_credentials_handle_js_read_and_submit_without_extra_calls(
     fixture_html: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("DISPLAY", ":synthetic")
     engine = MagicMock()
     monkeypatch.setattr(
         "playwright.sync_api.sync_playwright", lambda: MagicMock(start=lambda: engine)
@@ -85,6 +76,11 @@ def test_file_credentials_handle_js_read_and_submit_without_extra_calls(
     monkeypatch.setattr("rootme_sdk.authentication.browser._executable", lambda *args: "/synthetic")
     context = engine.chromium.launch.return_value.new_context.return_value
     browser_page = context.new_page.return_value
+    reply = browser_page.expect_response.return_value.__enter__.return_value.value
+    reply.status = 200
+    reply.url = WEB + "?page=login"
+    reply.body.return_value = b"Synthetic login reply"
+    reply.all_headers.return_value = {}
     logged_in = False
     writes = []
 
@@ -101,7 +97,9 @@ def test_file_credentials_handle_js_read_and_submit_without_extra_calls(
 
     def navigate(url: str, **kwargs: object) -> MagicMock:
         browser_page.url = url
-        browser_page.content.return_value = (fixture_html / "challenge.html").read_text()
+        browser_page.content.return_value = (
+            fixture_html / ("preferences.html" if "page=preferences" in url else "challenge.html")
+        ).read_text()
         return MagicMock(status=200)
 
     def evaluate(script: str, args: dict[str, object] | None = None) -> object:

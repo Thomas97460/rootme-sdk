@@ -2,6 +2,7 @@ from .authentication.session import Session, SessionCookie
 from .client import RootMeClient
 from .errors import (
     AuthenticationRequiredError,
+    BrowserUnavailableError,
     HumanInterventionRequiredError,
     NetworkError,
     NotFoundError,
@@ -28,6 +29,7 @@ from .models import (
 
 __all__ = [
     "AuthenticationRequiredError",
+    "BrowserUnavailableError",
     "Category",
     "Collection",
     "Challenge",
