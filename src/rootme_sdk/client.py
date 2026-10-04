@@ -102,57 +102,36 @@ class RootMeClient:
         username: str | None = None,
         password: str | None = None,
         *,
-        password_file: str | Path | None = None,
         credentials_file: str | Path | None = None,
-        browser: bool | None = None,
-        executable_path: str | None = None,
-        headless: bool | None = None,
         timeout: float = 180,
     ) -> Session:
         """Connect with credentials, automatically handling the site's JavaScript gate."""
-        credentials = Credentials.load(username, password, credentials_file, password_file)
+        credentials = Credentials.load(username, password, credentials_file)
         self._close_browser()
         self.session.cookies = tuple(c for c in self.session.cookies if c.name != "spip_session")
-        return self._authenticate(credentials, browser, executable_path, headless, timeout)
+        try:
+            return self._open_browser(credentials, timeout=timeout)
+        except Exception:
+            self.session.cookies = ()
+            raise
 
-    def _authenticate(
+    def _open_browser(
         self,
-        credentials: Credentials,
-        browser: bool | None,
-        executable_path: str | None,
-        headless: bool | None,
-        timeout: float,
-    ) -> Session:
-        """Use Root-Me's native JavaScript login unless HTTP is explicitly requested."""
-        if browser is False:
-            return self._http_login(credentials.username, credentials.password)
-        return self.open_browser(
-            username=credentials.username,
-            password=credentials.password,
-            executable_path=executable_path,
-            headless=headless,
-            timeout=timeout,
-        )
-
-    def open_browser(
-        self,
+        credentials: Credentials | None = None,
         *,
-        username: str | None = None,
-        password: str | None = None,
-        executable_path: str | None = None,
-        headless: bool | None = None,
         timeout: float = 180,
-        authenticate: bool = True,
     ) -> Session:
         """Open managed JS access; ordinary password login calls this automatically."""
         from .authentication.browser import BrowserSession
 
         self._close_browser()
-        browser = BrowserSession(
-            self.session, executable_path=executable_path, headless=headless, timeout=timeout
-        )
+        browser = BrowserSession(self.session, timeout=timeout)
         try:
-            result = browser.authenticate(username, password) if authenticate else browser.prepare()
+            result = (
+                browser.authenticate(credentials.username, credentials.password)
+                if credentials
+                else browser.prepare()
+            )
         except Exception:
             browser.close()
             raise
@@ -229,7 +208,7 @@ class RootMeClient:
             and link.label
         )
 
-    def _get_page(self, url: str, *, allow_browser: bool = True) -> WebPage:
+    def _get_page(self, url: str) -> WebPage:
         """Read an anonymous or authenticated page and discover its forms and links."""
         if urlsplit(platform_url(url)).hostname != WEB_HOST:
             raise ValueError("Website pages must use the website host.")
@@ -238,9 +217,9 @@ class RootMeClient:
         try:
             response = self._transport.request("GET", url)
         except HumanInterventionRequiredError:
-            if not allow_browser or self._transport.browser:
+            if self._transport.browser:
                 raise
-            self.open_browser(authenticate=False)
+            self._open_browser()
             response = self._transport.request("GET", url)
         return web.page(response.text, str(response.url))
 
@@ -268,9 +247,7 @@ class RootMeClient:
         files: Mapping[str, Upload] | None = None,
     ) -> WebPage:
         """Refresh tokens and submit one explicitly chosen form, including file uploads."""
-        current = _find_form(
-            self._get_page(form.page_url, allow_browser=form.name != "login"), form.name
-        )
+        current = _find_form(self._get_page(form.page_url), form.name)
         values = web.form_values(current, changes)
         allowed = {f.name for f in current.fields if f.kind == "file"}
         if files and not set(files).issubset(allowed):
@@ -324,20 +301,6 @@ class RootMeClient:
         if not result.url:
             raise UnexpectedResponseError("API did not provide a challenge URL.")
         return platform_url(result.url)
-
-    def _http_login(self, username: str, password: str) -> Session:
-        """Verify password authentication against the returned account menu."""
-        document = self._get_page(f"{WEB_URL}/?page=login&lang=en", allow_browser=False)
-        form = _find_form(document, "login")
-        result = self._submit_form(form, {"var_login": username, "password": password})
-        logged_in = any(
-            parse_qs(urlsplit(link.url).query).get("action") == ["logout"] for link in result.links
-        )
-        if not self.session.spip_session or not logged_in:
-            raise AuthenticationRequiredError(
-                "Login did not produce an authenticated session.", reason="rejected"
-            )
-        return self.session
 
     def _one(self, path: str) -> JSONObject:
         """Require exactly one data record in a detail response."""

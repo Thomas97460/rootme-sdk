@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 from unittest.mock import MagicMock
-from urllib.parse import parse_qs
 
 import httpx
 import pytest
@@ -12,6 +11,7 @@ from rootme_sdk import (
     Resource,
     RootMeClient,
     Session,
+    SessionCookie,
     SubmissionStatus,
     UnexpectedResponseError,
     Upload,
@@ -189,80 +189,21 @@ def test_web_read_categories_and_download(fixture_html: Path, tmp_path: Path) ->
         assert target.read_bytes() == b"file"
 
 
-def test_login_file_and_transient_tokens(fixture_html: Path, tmp_path: Path) -> None:
-    calls: list[httpx.Request] = []
-    login = (fixture_html / "login.html").read_text()
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        calls.append(request)
-        if request.method == "GET":
-            return httpx.Response(200, text=login.replace("synthetic-token", f"token-{len(calls)}"))
-        fields = parse_qs(request.content.decode())
-        assert fields["formulaire_action_args"] == ["token-2"]
-        assert fields["password"] == ["synthetic-password"] and fields["var_login"] == ["Example"]
-        return httpx.Response(
-            200,
-            text='<a href="/?action=logout">Logout</a>',
-            headers={"set-cookie": "spip_session=test-session; Path=/"},
-        )
-
-    secret = tmp_path / "password"
-    secret.write_text("synthetic-password\n")
-    with RootMeClient(transport=httpx.MockTransport(handler)) as client:
-        assert (
-            client.login("Example", password_file=secret, browser=False).spip_session
-            == "test-session"
-        )
-        assert not hasattr(client.session, "password")
-        assert [c.method for c in calls] == ["GET", "GET", "POST"]
-
-
-def test_bad_login_and_password_sources(fixture_html: Path, tmp_path: Path) -> None:
-    login = (fixture_html / "login.html").read_text()
-    with (
-        RootMeClient(
-            transport=httpx.MockTransport(lambda r: httpx.Response(200, text=login))
-        ) as client,
-        pytest.raises(AuthenticationRequiredError),
-    ):
-        client.login("Example", "synthetic-password", browser=False)
-
-
-def test_cookie_without_account_access_is_rejected(fixture_html: Path) -> None:
-    login = (fixture_html / "login.html").read_text()
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, text=login, headers={"set-cookie": "spip_session=anonymous; Path=/"}
-        )
-
-    with RootMeClient(transport=httpx.MockTransport(handler)) as client:
-        with pytest.raises(AuthenticationRequiredError) as failure:
-            client.login("Example", "synthetic-password", browser=False)
-        assert failure.value.reason == "rejected"
-        with pytest.raises(AuthenticationRequiredError) as failure:
-            client.preferences()
-        assert failure.value.reason == "rejected"
-
-
-def test_explicit_browser_login_and_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_managed_browser_login_and_reconnection_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
     browser = MagicMock()
     factory = MagicMock(return_value=browser)
     monkeypatch.setattr("rootme_sdk.authentication.browser.BrowserSession", factory)
     state = Session()
     browser.authenticate.return_value = state
-    browser.prepare.return_value = state
     with RootMeClient(session=state) as client:
-        assert client.login("Example", "synthetic-password", browser=True) == state
-        assert client.open_browser() == state
+        assert client.login("Example", "synthetic-password") == state
+        assert client.login("Example", "synthetic-password") == state
         assert browser.close.call_count == 1
-        assert client.open_browser(authenticate=False) == state
-        assert browser.close.call_count == 2
-    assert browser.close.call_count == 3
+    assert browser.close.call_count == 2
     browser.authenticate.side_effect = AuthenticationRequiredError("failed")
     with RootMeClient() as client, pytest.raises(AuthenticationRequiredError):
-        client.open_browser()
-    assert browser.close.call_count == 4
+        client.login("Example", "synthetic-password")
+    assert browser.close.call_count == 3
 
 
 @pytest.mark.parametrize("use_file", [False, True])
@@ -290,9 +231,7 @@ def test_constructor_credentials_manage_js_login(
         client = RootMeClient("Example", "synthetic-password", **options)
     with client:
         browser.authenticate.assert_called_once_with("Example", "synthetic-password")
-        factory.assert_called_once_with(
-            client.session, executable_path=None, headless=None, timeout=180
-        )
+        factory.assert_called_once_with(client.session, timeout=180)
         assert server.call_count == 0
         assert client.session.cookies == ()
         assert not hasattr(client, "password") and not hasattr(client.session, "password")
@@ -322,32 +261,43 @@ def test_constructor_rejects_mixed_credentials(session: Session | None, cookie: 
         RootMeClient("Example", "synthetic-password", session=session, spip_session=cookie)
 
 
-def test_explicit_http_gate_and_password_rejection_never_retry_in_browser(
+def test_new_login_discards_old_browser_session(
     monkeypatch: pytest.MonkeyPatch, fixture_html: Path
 ) -> None:
-    browser = MagicMock()
-    monkeypatch.setattr("rootme_sdk.authentication.browser.BrowserSession", browser)
-    server = MagicMock(return_value=httpx.Response(200, text='<div id="anubis_version"></div>'))
-    with RootMeClient(transport=httpx.MockTransport(server)) as client:
-        with pytest.raises(HumanInterventionRequiredError):
-            client.login("Example", "synthetic-password", browser=False)
-        server.return_value = httpx.Response(200, text=(fixture_html / "login.html").read_text())
-        with pytest.raises(AuthenticationRequiredError):
-            client.login("Example", "synthetic-password", browser=False)
-    browser.assert_not_called()
-
-
-def test_new_login_discards_old_browser_session(monkeypatch: pytest.MonkeyPatch) -> None:
     browser = MagicMock()
     monkeypatch.setattr(
         "rootme_sdk.authentication.browser.BrowserSession", lambda *args, **kw: browser
     )
-    with RootMeClient(spip_session="old-session") as client:
-        client.open_browser(authenticate=False)
-        browser.close.side_effect = lambda: None
-        client.login("Example", "synthetic-password", browser=True)
+    server = MagicMock(return_value=httpx.Response(200, text='<div id="anubis_version"></div>'))
+    browser.request.return_value = httpx.Response(
+        200,
+        text=(fixture_html / "challenge.html").read_text(),
+        request=httpx.Request("GET", CHALLENGE),
+    )
+    with RootMeClient(spip_session="old-session", transport=httpx.MockTransport(server)) as client:
+        client.read_challenge(CHALLENGE)
+        client.login("Example", "synthetic-password")
         browser.close.assert_called_once()
         assert client.session.spip_session is None
+
+
+def test_failed_login_erases_partial_authentication(monkeypatch: pytest.MonkeyPatch) -> None:
+    browser = MagicMock()
+    state = Session()
+
+    def fail(username: str, password: str) -> None:
+        state.cookies = (SessionCookie("spip_session", "anonymous"),)
+        raise AuthenticationRequiredError("Login rejected.")
+
+    browser.authenticate.side_effect = fail
+    monkeypatch.setattr(
+        "rootme_sdk.authentication.browser.BrowserSession", lambda *args, **kw: browser
+    )
+    with RootMeClient(session=state) as client:
+        with pytest.raises(AuthenticationRequiredError):
+            client.login("Example", "synthetic-password")
+        assert state.cookies == ()
+    browser.close.assert_called_once()
 
 
 def test_public_js_reads_are_automatic_and_browser_gate_is_not_replayed(

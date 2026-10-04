@@ -48,10 +48,13 @@ in an isolated browser automatically. It fills the
 credentials and keeps the browser alive for subsequent operations. Passwords are
 not retained by the client or saved in sessions. There is no API-key authentication.
 
-When a desktop is available, native browser verification may open a window; no
-manual login is required. Without a desktop the SDK uses headless Chromium.
-Root-Me can still refuse automation or require human verification; this produces
-`HumanInterventionRequiredError` rather than claiming authentication succeeded.
+Password login always opens a graphical Chrome/Chromium window and fills the
+credentials automatically. No manual login is required. A working desktop display
+and Chromium's system dependencies are required; Linux needs `DISPLAY`. The SDK
+raises `BrowserUnavailableError` before browser startup when that display is missing.
+It waits for native login completion and verifies an account-only page before
+returning. Platform verification failures, network failures and rate limits remain
+explicit errors. There is no headless or HTTP-only login fallback.
 
 `get_challenge(id)` reads official API metadata through the authenticated session;
 `read_challenge(id_or_url)` reads the full website statement and resource links.
@@ -88,8 +91,8 @@ no account cookies. Closing the client releases its HTTP pool and browser.
 
 Advanced callers can explicitly save `client.session` and load it with
 `RootMeClient(session=Session.load(path))`. Session files contain cookies, never
-passwords. `open_browser` and the `login` browser options remain available for
-diagnostics; they are unnecessary for normal password authentication.
+passwords. Reuse does not renew an expired login: reconnect with credentials.
+Website JavaScript assistance uses the same graphical browser when required.
 
 ## Account
 
@@ -106,7 +109,9 @@ Catch `RootMeError` or an exported specific error. Authentication errors carry
 `reason`: missing, expired or rejected. Rejected credentials can indicate remote
 expiry or invalid credentials. `HumanInterventionRequiredError` carries a
 verification URL; `RateLimitedError.retry_after` carries the waiting interval.
-Reconnect explicitly using `login` when the current session is rejected.
+`BrowserUnavailableError` reports an unavailable graphical browser environment.
+Reconnect explicitly using `login` when the current session is rejected. Failed
+login attempts are never silently replayed through another mechanism.
 
 See [CAPABILITIES.md](CAPABILITIES.md) for observed behavior and limitations.
 Tests use synthetic fixtures and no live account. Account preference mutations
@@ -131,6 +136,9 @@ release. PyPI remains disabled unless explicitly enabled after publisher setup.
 See [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md) and
 [REQUIREMENTS.md](REQUIREMENTS.md).
 
-Since 0.2.0, password login handles JavaScript automatically, Playwright is included
-by default, and the constructor accepts credentials directly. Existing explicit
-session, `login`, and `[browser]` installation calls remain supported.
+Since 0.3.0, graphical browser login is the only password authentication path.
+The constructor still accepts credentials directly or from JSON. Remove calls to
+`open_browser` and the former `login` options `browser`, `headless`,
+`executable_path` and `password_file`; use the constructor or `login` with either
+credential source instead. Explicit session reuse and the `[browser]` installation
+extra remain supported, with browser support included by default.

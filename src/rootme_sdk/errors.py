@@ -7,6 +7,10 @@ class RootMeError(Exception):
     """Base error for all SDK failures."""
 
 
+class BrowserUnavailableError(RootMeError):
+    """The required headed browser or graphical display could not be prepared."""
+
+
 class AuthenticationRequiredError(RootMeError):
     """The requested operation needs authentication or an expired session renewed."""
 
@@ -39,7 +43,7 @@ class HumanInterventionRequiredError(RootMeError):
 
     def __init__(self, url: str) -> None:
         """Record the safe page URL at which verification should take place."""
-        super().__init__("Browser verification required; import its session and retry.")
+        super().__init__("Root-Me browser verification did not complete.")
         self.url = url
 
 

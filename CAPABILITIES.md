@@ -7,7 +7,6 @@ reads reuse the login cookie. Website JavaScript gates can affect public reads.
 | --- | --- | --- | --- |
 | `RootMeClient(login, password)` / `RootMeClient(credentials_file=...)` | Connect from credentials and manage browser/session internally | Existing account | Both modes observed without human input, including preferences and challenge reads |
 | `login` | Connect/reconnect an existing client, with automatic JS assistance | Existing account | Same managed authentication flow |
-| `open_browser` | Advanced browser control or manual login | Account, or anonymous with `authenticate=False` | Visible automatic login and headless session reuse observed |
 | `logout` | Server logout and local credential erasure | Session for server logout | Route observed; behavior tested offline |
 | `get_challenge(id)` | Metadata and additional API fields | Login session | Detail response observed |
 | `get_challenge(url)`, `read_challenge` | Full statement, resources and access instructions | Website access | Challenge pages observed |
@@ -21,13 +20,19 @@ reads reuse the login cookie. Website JavaScript gates can affect public reads.
 
 ## Limits
 
-A fresh visible-browser login succeeded without human input; the saved session
-then worked headlessly. The SDK selects visible mode when a desktop is available,
-headless otherwise, and finds or prepares Chromium automatically. A fresh headless
-login encountered Anubis in this environment; platform-enforced human verification
-remains an explicit error. Password login uses the native browser flow by default;
-the HTTP-only override is available for diagnostics. Rejected credentials are
-never silently resubmitted through another login mechanism.
+Password authentication uses only graphical Chrome/Chromium. The SDK finds or
+prepares Chromium automatically, submits credentials once, waits for native login
+completion and verifies the account preferences page before returning a connected
+client. A graphical display and Chromium's system dependencies are prerequisites;
+missing Linux `DISPLAY` is rejected before browser startup. Headless and HTTP-only
+login are not supported. Platform verification, network and rate-limit failures
+are explicit errors; rejected credentials are never silently resubmitted.
+
+The current authentication change is provisional. Both credential sources produced
+successful account/API/challenge reads, but some fresh sessions still returned a
+login page during account verification after positive login feedback. The cause
+is unresolved. Further live checks stopped after an HTTP 429 response; this branch
+has not been validated for release reliability.
 
 Submission feedback is read only inside the challenge validation form, using
 observed success/error and SPIP feedback classes. Explicit English/French
