@@ -123,7 +123,7 @@ def test_native_login_waits_for_post_and_confirms_account_access(engine: MagicMo
     login_page.wait_for_load_state.assert_called_once_with("load")
     pending.body.assert_called_once()
     login_page.locator.return_value.click.assert_called_once()
-    login_page.wait_for_url.assert_not_called()
+    login_page.wait_for_url.assert_called_once()
     login_page.close.assert_not_called()
     assert adapter.context.new_page.call_count == 1
     assert login_page.goto.call_args_list[-1].args[0] == WEB + "?page=preferences&lang=en"
@@ -156,10 +156,24 @@ def test_ajax_login_succeeds_when_the_old_account_menu_never_updates(engine: Mag
     )
     adapter.context.cookies.side_effect = [[], [cookie()]]
     assert adapter.authenticate("Example", "synthetic-password").spip_session == "test-session"
-    login_page.wait_for_url.assert_not_called()
+    login_page.wait_for_url.assert_called_once()
     assert adapter.page is login_page
     assert adapter.context.new_page.call_count == 1
     login_page.close.assert_not_called()
+    adapter.close()
+
+
+def test_complete_login_safely_handles_navigated_away_body_protocol_error(
+    engine: MagicMock,
+) -> None:
+    adapter = BrowserSession(Session())
+    login_page = adapter.page
+    pending = login_page.expect_response.return_value.__enter__.return_value.value
+    pending.body.side_effect = PlaywrightError(
+        "Protocol error: Response body is not available for a response navigated away."
+    )
+    adapter.context.cookies.side_effect = [[], [cookie()]]
+    assert adapter.authenticate("Example", "synthetic-password").spip_session == "test-session"
     adapter.close()
 
 
