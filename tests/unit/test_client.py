@@ -8,6 +8,7 @@ import pytest
 from rootme_sdk import (
     AuthenticationRequiredError,
     HumanInterventionRequiredError,
+    NotFoundError,
     Resource,
     RootMeClient,
     Session,
@@ -468,7 +469,43 @@ def test_challenge_query_filters_and_validation() -> None:
         assert calls[-1].url.params["score"] == "5"
         assert calls[-1].url.params["tri"] == "points"
 
+        client.list_challenges(lang="en")
+        assert calls[-1].url.params["lang"] == "en"
+
+        with pytest.raises(ValueError, match="Supply either language or lang"):
+            client.list_challenges(language="fr", lang="en")
         with pytest.raises(ValueError, match="Language"):
             list(client.iter_challenges(language="invalid"))
         with pytest.raises(ValueError, match="Identifier"):
             list(client.iter_challenges(author_ids=[-1]))
+
+
+def test_collection_endpoints_treat_404_as_empty_results() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json=[{"error": {"code": 404}}])
+
+    with RootMeClient(
+        spip_session="test-session", transport=httpx.MockTransport(handler)
+    ) as client:
+        result = client.list_challenges(score=5, lang="en")
+        assert result.items == ()
+        assert result.next_url is None
+        assert list(client.iter_challenges(score=5, lang="en")) == []
+        with pytest.raises(NotFoundError):
+            client.get_challenge(999)
+
+
+def test_lazy_pagination_terminates_on_404_continuation() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("page") == "2":
+            return httpx.Response(404, json=[{"error": {"code": 404}}])
+        return httpx.Response(
+            200,
+            json=[{"0": {"titre": "First"}}, {"rel": "next", "href": API + "/challenges?page=2"}],
+        )
+
+    with RootMeClient(
+        spip_session="test-session", transport=httpx.MockTransport(handler)
+    ) as client:
+        iterator = client.iter_challenges(score=5)
+        assert [c.title for c in iterator] == ["First"]

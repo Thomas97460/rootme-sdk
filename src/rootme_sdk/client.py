@@ -16,6 +16,7 @@ from .errors import (
     AuthenticationRequiredError,
     HumanInterventionRequiredError,
     NetworkError,
+    NotFoundError,
     RateLimitedError,
     UnexpectedResponseError,
 )
@@ -186,6 +187,7 @@ class RootMeClient:
         title: str | None = None,
         subtitle: str | None = None,
         language: str | None = None,
+        lang: str | None = None,
         score: int | None = None,
         author_ids: Sequence[int] = (),
         **extra_filters: str | int,
@@ -196,6 +198,7 @@ class RootMeClient:
             title: Substring matching the challenge title.
             subtitle: Substring matching the challenge subtitle.
             language: Two-letter language code filter ("en" or "fr").
+            lang: Alias for language matching the Root-Me API parameter name.
             score: Exact challenge point score filter.
             author_ids: Sequence of author IDs who created the challenge.
             **extra_filters: Additional raw query parameters sent to the API.
@@ -207,6 +210,7 @@ class RootMeClient:
             title=title,
             subtitle=subtitle,
             language=language,
+            lang=lang,
             score=score,
             author_ids=author_ids,
             **extra_filters,
@@ -219,6 +223,7 @@ class RootMeClient:
         title: str | None = None,
         subtitle: str | None = None,
         language: str | None = None,
+        lang: str | None = None,
         score: int | None = None,
         author_ids: Sequence[int] = (),
         **extra_filters: str | int,
@@ -229,6 +234,7 @@ class RootMeClient:
             title: Substring matching the challenge title.
             subtitle: Substring matching the challenge subtitle.
             language: Two-letter language code filter ("en" or "fr").
+            lang: Alias for language matching the Root-Me API parameter name.
             score: Exact challenge point score filter.
             author_ids: Sequence of author IDs who created the challenge.
             **extra_filters: Additional raw query parameters sent to the API.
@@ -240,6 +246,7 @@ class RootMeClient:
             title=title,
             subtitle=subtitle,
             language=language,
+            lang=lang,
             score=score,
             author_ids=author_ids,
             **extra_filters,
@@ -423,7 +430,10 @@ class RootMeClient:
         self, url: str, parse: Callable[[JSONObject], T], params: Query | None = None
     ) -> Collection[T]:
         """Preserve the server's continuation link alongside parsed records."""
-        data = self._api(url, params)
+        try:
+            data = self._api(url, params)
+        except NotFoundError:
+            return Collection((), None)
         values = data if isinstance(data, list) else [data]
         next_url = next(
             (
@@ -496,6 +506,7 @@ def _challenge_query(
     title: str | None = None,
     subtitle: str | None = None,
     language: str | None = None,
+    lang: str | None = None,
     score: int | None = None,
     author_ids: Sequence[int] = (),
     **extra_filters: str | int,
@@ -506,6 +517,7 @@ def _challenge_query(
         title: Substring matching the challenge title.
         subtitle: Substring matching the challenge subtitle.
         language: Two-letter language code filter ("en" or "fr").
+        lang: Alias for language matching the Root-Me API parameter name.
         score: Exact challenge point score filter.
         author_ids: Sequence of author IDs who created the challenge.
         **extra_filters: Additional raw query parameters sent to the API.
@@ -513,11 +525,14 @@ def _challenge_query(
     Returns:
         httpx.QueryParams: Serialized and validated query parameters.
     """
-    if language is not None:
-        _language(language)
+    if language is not None and lang is not None and language != lang:
+        raise ValueError("Supply either language or lang, not conflicting values.")
+    selected = language if language is not None else lang
+    if selected is not None:
+        _language(selected)
     for identifier in author_ids:
         _identifier(identifier)
-    params = _query({"titre": title, "soustitre": subtitle, "lang": language, "score": score})
+    params = _query({"titre": title, "soustitre": subtitle, "lang": selected, "score": score})
     pairs = list(params.multi_items()) + [("id_auteur[]", str(i)) for i in author_ids]
     for key, value in extra_filters.items():
         pairs.append((key, str(value)))

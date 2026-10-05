@@ -72,7 +72,7 @@ with RootMeClient("your-username", "your-password") as client:
     print(f"Statement: {challenge.statement}")
 
     # Browse challenges
-    for item in client.iter_challenges(language="en", score=5):
+    for item in client.iter_challenges(score=5):
         print(f"[{item.id}] {item.title} ({item.score} pts)")
 ```
 
