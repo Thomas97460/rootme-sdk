@@ -29,14 +29,14 @@ as ordinary Dependabot PRs and must pass the same checks.
 
 ## Releases
 
-The repository and GitHub releases remain private. PyPI publication is deferred:
+The repository and GitHub releases are public. PyPI publication is deferred:
 the release workflow skips it unless the repository variable PUBLISH_PYPI is true.
 
 1. Set the version in pyproject.toml through a validated PR and merge.
 2. Wait for successful CI on that exact main commit.
 3. Obtain explicit release approval, then tag that commit as vX.Y.Z and push.
 4. Watch release.yml: it verifies version/main CI, checks and builds artifacts,
-   then attaches the wheel and source archive to the private GitHub release.
+   then attaches the wheel and source archive to the GitHub release.
 5. Verify assets and install/import each distribution from a clean environment.
 
 Never rewrite release tags or published versions. Correct failures with a normal

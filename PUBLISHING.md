@@ -1,6 +1,6 @@
 # Public GitHub and PyPI preparation
 
-The repository remains private and `PUBLISH_PYPI=false`. No publication or
+The repository is public and `PUBLISH_PYPI=false`. No publication or
 visibility change follows from merging the preparation work. The current package
 version is 0.3.0; its tag has not been published.
 
