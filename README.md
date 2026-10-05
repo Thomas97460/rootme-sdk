@@ -7,12 +7,28 @@ An unofficial, typed Python SDK for [Root-Me](https://www.root-me.org/): automat
 
 ## Installation
 
-Clone the repository and install the package with pip (Python >= 3.13 required):
+Requires Python >= 3.13.
+
+### With pip
 
 ```bash
-git clone https://github.com/Thomas97460/rootme-sdk.git
-cd rootme-sdk
-pip install .
+# Install
+pip install rootme-sdk
+
+# Upgrade
+pip install -U rootme-sdk
+```
+
+### With uv
+
+```bash
+# In a project
+uv add rootme-sdk
+uv lock --upgrade-package rootme-sdk
+
+# In a virtual environment
+uv pip install rootme-sdk
+uv pip install -U rootme-sdk
 ```
 
 Playwright is included. On first use, it automatically uses your local Chrome/Chromium or downloads a managed Chromium browser.
