@@ -12,7 +12,7 @@ Use it with an existing account and respect Root-Me's usage rules and rate limit
 
 ## Install
 
-The repository and GitHub releases are private; PyPI publication is deferred.
+The repository and GitHub releases are public; PyPI publication is deferred.
 Install the checkout, or a wheel downloaded from a GitHub release:
 
 ```bash
