@@ -433,3 +433,42 @@ def test_submit_once_and_actual_outcome(
         if outcome == "rate-limit":
             assert result.retry_after == 60
     assert sum(c.method == "POST" for c in calls) == 1
+
+
+def test_challenge_query_filters_and_validation() -> None:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json=[{"0": {"titre": "First"}}])
+
+    with RootMeClient(
+        spip_session="test-session", transport=httpx.MockTransport(handler)
+    ) as client:
+        items = list(
+            client.iter_challenges(
+                title="Web",
+                subtitle="Intro",
+                language="fr",
+                score=25,
+                author_ids=[10, 20],
+                tri="date",
+            )
+        )
+        assert len(items) == 1
+        params = calls[-1].url.params
+        assert params["titre"] == "Web"
+        assert params["soustitre"] == "Intro"
+        assert params["lang"] == "fr"
+        assert params["score"] == "25"
+        assert params.get_list("id_auteur[]") == ["10", "20"]
+        assert params["tri"] == "date"
+
+        client.list_challenges(score=5, tri="points")
+        assert calls[-1].url.params["score"] == "5"
+        assert calls[-1].url.params["tri"] == "points"
+
+        with pytest.raises(ValueError, match="Language"):
+            list(client.iter_challenges(language="invalid"))
+        with pytest.raises(ValueError, match="Identifier"):
+            list(client.iter_challenges(author_ids=[-1]))
