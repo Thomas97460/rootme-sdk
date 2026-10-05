@@ -154,7 +154,14 @@ class RootMeClient:
             self._close_browser()
 
     def get_challenge(self, reference: int | str) -> Challenge:
-        """Read API metadata by ID, or a complete web challenge by its URL."""
+        """Read API metadata by ID, or a complete web challenge by its URL.
+
+        Args:
+            reference: Numeric challenge ID or full website challenge URL.
+
+        Returns:
+            Challenge: Deserialized challenge data.
+        """
         if isinstance(reference, str):
             return web.challenge_page(self._get_page(reference))
         _identifier(reference)
@@ -162,7 +169,14 @@ class RootMeClient:
         return api.challenge(data, identifier=reference)
 
     def read_challenge(self, reference: int | str) -> Challenge:
-        """Read the statement and resources, resolving an API ID to its actual URL."""
+        """Read the statement and resources, resolving an API ID to its actual URL.
+
+        Args:
+            reference: Numeric challenge ID or full website challenge URL.
+
+        Returns:
+            Challenge: Complete challenge with statement and resources.
+        """
         url = self._challenge_url(reference)
         return web.challenge_page(self._get_page(url))
 
@@ -174,27 +188,85 @@ class RootMeClient:
         language: str | None = None,
         score: int | None = None,
         author_ids: Sequence[int] = (),
+        **extra_filters: str | int,
     ) -> Collection[Challenge]:
-        """Read one page using only filters documented by the official API."""
-        params = _query({"titre": title, "soustitre": subtitle, "lang": language, "score": score})
-        for identifier in author_ids:
-            _identifier(identifier)
-        pairs = list(params.multi_items()) + [("id_auteur[]", str(i)) for i in author_ids]
-        return self._collection(
-            f"{API_URL}/challenges", api.challenge, httpx.QueryParams(tuple(pairs))
-        )
+        """Read one page using challenge filters documented by the official API.
 
-    def iter_challenges(self, **filters: str | int) -> Iterator[Challenge]:
-        """Iterate server-provided catalogue pages using native API filter names."""
-        yield from self._iterate(f"{API_URL}/challenges", api.challenge, filters)
+        Args:
+            title: Substring matching the challenge title.
+            subtitle: Substring matching the challenge subtitle.
+            language: Two-letter language code filter ("en" or "fr").
+            score: Exact challenge point score filter.
+            author_ids: Sequence of author IDs who created the challenge.
+            **extra_filters: Additional raw query parameters sent to the API.
+
+        Returns:
+            Collection[Challenge]: Page items and continuation link.
+        """
+        params = _challenge_query(
+            title=title,
+            subtitle=subtitle,
+            language=language,
+            score=score,
+            author_ids=author_ids,
+            **extra_filters,
+        )
+        return self._collection(f"{API_URL}/challenges", api.challenge, params)
+
+    def iter_challenges(
+        self,
+        *,
+        title: str | None = None,
+        subtitle: str | None = None,
+        language: str | None = None,
+        score: int | None = None,
+        author_ids: Sequence[int] = (),
+        **extra_filters: str | int,
+    ) -> Iterator[Challenge]:
+        """Iterate server-provided challenge pages using explicit or raw filters.
+
+        Args:
+            title: Substring matching the challenge title.
+            subtitle: Substring matching the challenge subtitle.
+            language: Two-letter language code filter ("en" or "fr").
+            score: Exact challenge point score filter.
+            author_ids: Sequence of author IDs who created the challenge.
+            **extra_filters: Additional raw query parameters sent to the API.
+
+        Yields:
+            Challenge: Lazily retrieved challenge instances across pages.
+        """
+        params = _challenge_query(
+            title=title,
+            subtitle=subtitle,
+            language=language,
+            score=score,
+            author_ids=author_ids,
+            **extra_filters,
+        )
+        yield from self._iterate(f"{API_URL}/challenges", api.challenge, params)
 
     def get_user(self, identifier: int) -> UserProfile:
-        """Read a profile, including the platform's solved-challenge data."""
+        """Read a profile, including the platform's solved-challenge data.
+
+        Args:
+            identifier: Numeric account ID of the user.
+
+        Returns:
+            UserProfile: Account profile and statistics.
+        """
         _identifier(identifier)
         return api.user(self._one(f"/auteurs/{identifier}"), identifier=identifier)
 
     def list_categories(self, *, language: str = "en") -> tuple[Category, ...]:
-        """Discover category links from the live challenge catalogue."""
+        """Discover category links from the live challenge catalogue.
+
+        Args:
+            language: Interface language code ("en" or "fr").
+
+        Returns:
+            tuple[Category, ...]: Discovered categories and their paths.
+        """
         _language(language)
         document = self._get_page(f"{WEB_URL}/{language}/Challenges/")
         prefix = f"/{language}/Challenges/"
@@ -224,7 +296,14 @@ class RootMeClient:
         return web.page(response.text, str(response.url))
 
     def preferences(self, *, language: str = "en") -> WebPage:
-        """Read editable profile/preferences controls without changing anything."""
+        """Read editable profile/preferences controls without changing anything.
+
+        Args:
+            language: Interface language code ("en" or "fr").
+
+        Returns:
+            WebPage: Discovered preferences form and page.
+        """
         _language(language)
         if not self.session.spip_session:
             raise AuthenticationRequiredError("Preferences require a web session.")
@@ -235,7 +314,15 @@ class RootMeClient:
     def update_preferences(
         self, changes: Mapping[str, str], *, files: Mapping[str, Upload] | None = None
     ) -> WebPage:
-        """Explicitly update fields exposed by the verified modifier_auteur form."""
+        """Explicitly update fields exposed by the verified modifier_auteur form.
+
+        Args:
+            changes: Mapping of field names to new text values.
+            files: Optional mapping of upload control names to Upload instances.
+
+        Returns:
+            WebPage: Resulting preferences page after submission.
+        """
         form = _find_form(self.preferences(), "modifier_auteur")
         return self._submit_form(form, changes, files=files)
 
@@ -268,7 +355,15 @@ class RootMeClient:
         return web.page(response.text, str(response.url))
 
     def submit_answer(self, reference: int | str, answer: str) -> SubmissionResult:
-        """Submit exactly once and report uncertainty rather than replaying an answer."""
+        """Submit exactly once and report uncertainty rather than replaying an answer.
+
+        Args:
+            reference: Numeric challenge ID or full website challenge URL.
+            answer: Proposed answer string to validate.
+
+        Returns:
+            SubmissionResult: Structured outcome with status and feedback.
+        """
         if not answer:
             raise ValueError("An answer must be nonempty.")
         document = self._get_page(self._challenge_url(reference))
@@ -285,7 +380,15 @@ class RootMeClient:
         return web.submission_result(result, answer)
 
     def download(self, resource: Resource | str, destination: str | Path | None = None) -> bytes:
-        """Download a public HTTPS attachment without account credentials."""
+        """Download a public HTTPS attachment without account credentials.
+
+        Args:
+            resource: Resource instance from a challenge or direct download URL.
+            destination: Optional file path to save the downloaded bytes.
+
+        Returns:
+            bytes: The downloaded file contents.
+        """
         data = self._transport.download(
             resource.url if isinstance(resource, Resource) else resource
         )
@@ -386,3 +489,36 @@ def _language(language: str) -> None:
 def _query(values: Mapping[str, str | int | None]) -> httpx.QueryParams:
     """Omit absent API filters without dropping zero-valued filters."""
     return httpx.QueryParams({key: value for key, value in values.items() if value is not None})
+
+
+def _challenge_query(
+    *,
+    title: str | None = None,
+    subtitle: str | None = None,
+    language: str | None = None,
+    score: int | None = None,
+    author_ids: Sequence[int] = (),
+    **extra_filters: str | int,
+) -> httpx.QueryParams:
+    """Build query parameters for challenge listing and lazy iteration.
+
+    Args:
+        title: Substring matching the challenge title.
+        subtitle: Substring matching the challenge subtitle.
+        language: Two-letter language code filter ("en" or "fr").
+        score: Exact challenge point score filter.
+        author_ids: Sequence of author IDs who created the challenge.
+        **extra_filters: Additional raw query parameters sent to the API.
+
+    Returns:
+        httpx.QueryParams: Serialized and validated query parameters.
+    """
+    if language is not None:
+        _language(language)
+    for identifier in author_ids:
+        _identifier(identifier)
+    params = _query({"titre": title, "soustitre": subtitle, "lang": language, "score": score})
+    pairs = list(params.multi_items()) + [("id_auteur[]", str(i)) for i in author_ids]
+    for key, value in extra_filters.items():
+        pairs.append((key, str(value)))
+    return httpx.QueryParams(tuple(pairs))
