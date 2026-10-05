@@ -18,3 +18,4 @@ dist/
 build/
 *.log
 *.egg-info/
+gitignore.py

@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 from base64 import b64decode, b64encode
+from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from urllib.parse import parse_qs, urljoin, urlsplit
@@ -139,7 +140,12 @@ class BrowserSession:
 
     def _complete_login(self, response: BrowserResponse) -> None:
         """Await decoded AJAX responses or native redirects without relying on menu updates."""
-        content = b"" if 300 <= response.status < 400 else response.body()
+        from playwright.sync_api import Error as PlaywrightError
+
+        try:
+            content = b"" if 300 <= response.status < 400 else response.body()
+        except PlaywrightError:
+            content = b""
         check_response(
             httpx.Response(
                 response.status,
@@ -153,7 +159,20 @@ class BrowserSession:
             self.page.wait_for_url(
                 target, wait_until="domcontentloaded", timeout=self.timeout * 1000
             )
+        else:
+            self._await_login_navigation()
         self._settle_login()
+
+    def _await_login_navigation(self) -> None:
+        """Wait for JavaScript-driven login redirects away from the login page."""
+        from playwright.sync_api import Error as PlaywrightError
+
+        with suppress(PlaywrightError):
+            self.page.wait_for_url(
+                lambda u: "?page=login" not in u,
+                wait_until="domcontentloaded",
+                timeout=min(self.timeout * 1000, 15000),
+            )
 
     def _settle_login(self) -> None:
         """Await page initialization and pending identity AJAX before advancing login."""
