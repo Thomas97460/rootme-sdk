@@ -2,6 +2,30 @@
 
 An unofficial, typed Python SDK for [Root-Me](https://www.root-me.org/): automated login, session reuse, profile and challenge exploration, and answer submission.
 
+<p align="center">
+  <a href="https://github.com/Thomas97460/rootme-sdk/actions/workflows/ci.yml">
+    <img src="https://github.com/Thomas97460/rootme-sdk/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="https://pypi.org/project/rootme-sdk/">
+    <img src="https://img.shields.io/pypi/v/rootme-sdk?style=flat-square&color=00d7d7&label=pypi" alt="pypi">
+  </a>
+  <a href="https://github.com/Thomas97460/rootme-sdk/releases/latest">
+    <img src="https://img.shields.io/github/v/release/Thomas97460/rootme-sdk?style=flat-square&color=00d7d7&label=latest" alt="latest">
+  </a>
+  <a href="https://github.com/Thomas97460/rootme-sdk/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/badge/coverage-100%25-00d7d7?style=flat-square" alt="coverage">
+  </a>
+  <a href="https://github.com/Thomas97460/rootme-sdk/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/badge/types-mypy%20strict-00d7d7?style=flat-square" alt="mypy">
+  </a>
+  <a href="https://www.python.org/">
+    <img src="https://img.shields.io/badge/python-3.13%2B-00d7d7?style=flat-square" alt="python">
+  </a>
+  <a href="https://github.com/Thomas97460/rootme-sdk/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-00d7d7?style=flat-square" alt="license">
+  </a>
+</p>
+
 > [!NOTE]
 > This library is alpha software and is not affiliated with Root-Me. Respect Root-Me's terms of service and rate limits.
 
