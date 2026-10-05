@@ -14,7 +14,9 @@ from .errors import (
 from .models import (
     Category,
     Challenge,
+    ChallengeSummary,
     Collection,
+    Difficulty,
     FormField,
     JSONObject,
     JSONValue,
@@ -33,6 +35,8 @@ __all__ = [
     "Category",
     "Collection",
     "Challenge",
+    "ChallengeSummary",
+    "Difficulty",
     "FormField",
     "HumanInterventionRequiredError",
     "JSONObject",

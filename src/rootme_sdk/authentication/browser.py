@@ -184,9 +184,16 @@ class BrowserSession:
 
     def _confirm_login(self) -> None:
         """Verify account-only access within the browser tab that completed authentication."""
+        from playwright.sync_api import Error as PlaywrightError
+
         check_response(
             self._get(httpx.Request("GET", f"https://{WEB_HOST}/?page=preferences&lang=en"))
         )
+        with suppress(PlaywrightError):
+            self.page.wait_for_selector(
+                'input[name="formulaire_action"][value="modifier_auteur"]',
+                timeout=min(self.timeout * 1000, 5000),
+            )
         editable = self.page.locator(
             'input[name="formulaire_action"][value="modifier_auteur"]'
         ).count()

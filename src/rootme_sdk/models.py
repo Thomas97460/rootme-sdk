@@ -15,17 +15,123 @@ class Resource:
     label: str = ""
 
 
+class Category(StrEnum):
+    """Supported Root-Me challenge categories."""
+
+    APP_SCRIPT = "app-script"
+    APP_SYSTEM = "app-system"
+    CRACKING = "cracking"
+    CRYPTANALYSIS = "cryptanalysis"
+    FORENSIC = "forensic"
+    PROGRAMMING = "programming"
+    REALISTIC = "realistic"
+    NETWORK = "network"
+    STEGANOGRAPHY = "steganography"
+    WEB_CLIENT = "web-client"
+    WEB_SERVER = "web-server"
+
+    @property
+    def label(self) -> str:
+        """Human-readable category label."""
+        return _CATEGORY_TITLES.get(self, self.value)
+
+
+_CATEGORY_TITLES: dict[Category, str] = {
+    Category.APP_SCRIPT: "App - Script",
+    Category.APP_SYSTEM: "App - Système",
+    Category.CRACKING: "Cracking",
+    Category.CRYPTANALYSIS: "Cryptanalyse",
+    Category.FORENSIC: "Forensic",
+    Category.PROGRAMMING: "Programmation",
+    Category.REALISTIC: "Réaliste",
+    Category.NETWORK: "Réseau",
+    Category.STEGANOGRAPHY: "Stéganographie",
+    Category.WEB_CLIENT: "Web - Client",
+    Category.WEB_SERVER: "Web - Serveur",
+}
+
+
+CATEGORY_RUBRIQUES: dict[Category, int] = {
+    Category.APP_SCRIPT: 189,
+    Category.APP_SYSTEM: 203,
+    Category.CRACKING: 69,
+    Category.CRYPTANALYSIS: 18,
+    Category.FORENSIC: 208,
+    Category.PROGRAMMING: 17,
+    Category.REALISTIC: 70,
+    Category.NETWORK: 182,
+    Category.STEGANOGRAPHY: 67,
+    Category.WEB_CLIENT: 16,
+    Category.WEB_SERVER: 68,
+}
+
+RUBRIQUE_CATEGORIES: dict[int, Category] = {
+    189: Category.APP_SCRIPT,
+    203: Category.APP_SYSTEM,
+    69: Category.CRACKING,
+    13: Category.CRACKING,
+    18: Category.CRYPTANALYSIS,
+    4: Category.CRYPTANALYSIS,
+    208: Category.FORENSIC,
+    17: Category.PROGRAMMING,
+    70: Category.REALISTIC,
+    182: Category.NETWORK,
+    12: Category.NETWORK,
+    67: Category.STEGANOGRAPHY,
+    16: Category.WEB_CLIENT,
+    68: Category.WEB_SERVER,
+}
+
+
+class Difficulty(StrEnum):
+    """Standardized challenge difficulty levels."""
+
+    VERY_EASY = "very-easy"
+    EASY = "easy"
+    MEDIUM = "medium"
+    HARD = "hard"
+    VERY_HARD = "very-hard"
+
+
+DIFFICULTY_SCORES: dict[Difficulty, tuple[int, ...]] = {
+    Difficulty.VERY_EASY: (5, 10),
+    Difficulty.EASY: (15, 20),
+    Difficulty.MEDIUM: (25, 30, 35),
+    Difficulty.HARD: (40, 45, 50),
+    Difficulty.VERY_HARD: (60, 75, 100),
+}
+
+
+@dataclass(frozen=True)
+class ChallengeSummary:
+    """Summary of a challenge returned in search or listing queries."""
+
+    id: int
+    title: str
+    category: Category | None = None
+    difficulty: Difficulty | None = None
+    score: int | None = None
+    solved: bool = False
+    url: str | None = None
+
+
 @dataclass(frozen=True)
 class Challenge:
     """Challenge metadata and statement; unavailable API fields remain absent."""
 
     id: int | None
     title: str
+    category: Category | None = None
+    difficulty: Difficulty | None = None
     score: int | None = None
+    solved: bool = False
     category_id: int | None = None
     url: str | None = None
     statement_html: str = field(default="", repr=False)
     statement: str = field(default="", repr=False)
+    authors: tuple[str, ...] = ()
+    date: str | None = None
+    validations_count: int | None = None
     resources: tuple[Resource, ...] = ()
     data: JSONObject = field(default_factory=dict, repr=False)
 
@@ -36,17 +142,16 @@ class UserProfile:
 
     id: int | None
     name: str
-    score: int | None
-    position: int | None
-    data: JSONObject = field(repr=False)
+    score: int | None = None
+    position: int | None = None
+    rank: int | None = None
+    solved_challenges_count: int = 0
+    data: JSONObject = field(default_factory=dict, repr=False)
 
-
-@dataclass(frozen=True)
-class Category:
-    """A category link discovered in the challenge catalogue."""
-
-    title: str
-    url: str
+    @property
+    def username(self) -> str:
+        """Alias for name."""
+        return self.name
 
 
 @dataclass(frozen=True)

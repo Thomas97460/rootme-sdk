@@ -23,6 +23,11 @@ type Query = Mapping[str, str | int] | httpx.QueryParams
 type Files = Mapping[str, tuple[str, bytes, str]]
 
 
+def _default_transport() -> httpx.BaseTransport:
+    """Create a transport bound to IPv4 to prevent platform-side IPv6 rate limits."""
+    return httpx.HTTPTransport(local_address="0.0.0.0")
+
+
 class Transport:
     """An HTTP boundary owning its pool and the caller's isolated session."""
 
@@ -42,7 +47,8 @@ class Transport:
         self.session = session
         self.read_retries, self.max_retry_delay, self.wait = read_retries, max_retry_delay, wait
         self.browser: BrowserSession | None = None
-        self.http = httpx.Client(transport=transport, timeout=timeout, trust_env=False)
+        base_transport = transport if transport is not None else _default_transport()
+        self.http = httpx.Client(transport=base_transport, timeout=timeout, trust_env=False)
 
     def close(self) -> None:
         """Close the owned HTTP connection pool."""

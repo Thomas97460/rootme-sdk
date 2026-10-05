@@ -31,7 +31,12 @@ def retry_after(value: str | None) -> float | None:
 def check_response(response: httpx.Response) -> None:
     """Classify status and browser gates without disclosing server content."""
     content = response.text.lower()
-    if "anubis_challenge" in content or "anubis_version" in content or "cf-chl-" in content:
+    if (
+        "anubis_challenge" in content
+        or "anubis_version" in content
+        or "cf-chl-" in content
+        or "making sure you're not a bot" in content
+    ):
         raise HumanInterventionRequiredError(str(response.url.copy_with(query=None)))
     if response.status_code == 401:
         raise AuthenticationRequiredError(

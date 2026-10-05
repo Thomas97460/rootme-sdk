@@ -1,7 +1,9 @@
 from rootme_sdk import (
     Category,
     Challenge,
+    ChallengeSummary,
     Collection,
+    Difficulty,
     FormField,
     Resource,
     SubmissionResult,
@@ -16,8 +18,13 @@ from rootme_sdk import (
 def test_public_typed_results_and_redacted_repr() -> None:
     resource = Resource("https://www.root-me.org/file", "File")
     assert Challenge(7, "Example", resources=(resource,)).resources == (resource,)
-    assert Category("Example", resource.url).title == "Example"
-    assert UserProfile(1, "Example", 10, 1, {}).position == 1
+    assert Category.WEB_SERVER == "web-server"
+    assert Category.WEB_SERVER.label == "Web - Serveur"
+    assert Difficulty.VERY_EASY == "very-easy"
+    summary = ChallengeSummary(7, "Example", Category.WEB_SERVER, Difficulty.VERY_EASY, 5)
+    assert summary.id == 7 and summary.category == Category.WEB_SERVER
+    profile = UserProfile(1, "Example", 10, 1, rank=1, solved_challenges_count=5)
+    assert profile.position == 1 and profile.username == "Example" and profile.rank == 1
     collection = Collection((resource,), None)
     assert collection.items == (resource,) and collection.next_url is None
     field = FormField("password", "password", "synthetic-password")

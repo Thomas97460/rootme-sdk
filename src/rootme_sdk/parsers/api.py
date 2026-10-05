@@ -6,7 +6,15 @@ from typing import cast
 from bs4 import BeautifulSoup
 
 from ..errors import AuthenticationRequiredError, PermissionDeniedError, UnexpectedResponseError
-from ..models import Challenge, JSONObject, JSONValue, UserProfile
+from ..models import (
+    RUBRIQUE_CATEGORIES,
+    Challenge,
+    ChallengeSummary,
+    Difficulty,
+    JSONObject,
+    JSONValue,
+    UserProfile,
+)
 from ..urls import website_url
 
 
@@ -64,18 +72,54 @@ def text(data: JSONObject, key: str, *, default: str | None = None) -> str:
     return value
 
 
+def score_to_difficulty(score: int | None) -> Difficulty | None:
+    """Map a numerical point score to a standardized difficulty level."""
+    if score is None:
+        return None
+    if score <= 10:
+        return Difficulty.VERY_EASY
+    if score <= 20:
+        return Difficulty.EASY
+    if score <= 35:
+        return Difficulty.MEDIUM
+    if score <= 50:
+        return Difficulty.HARD
+    return Difficulty.VERY_HARD
+
+
 def challenge(data: JSONObject, *, identifier: int | None = None) -> Challenge:
     """Build a challenge while retaining any additional fields in data."""
     html = text(data, "descriptif", default="")
+    rubrique_id = integer(data, "id_rubrique")
+    score_val = integer(data, "score")
     return Challenge(
         integer(data, "id_challenge") or identifier,
         text(data, "titre"),
-        integer(data, "score"),
-        integer(data, "id_rubrique"),
-        _challenge_link(data),
-        html,
-        BeautifulSoup(html, "html.parser").get_text("\n", strip=True),
+        category=RUBRIQUE_CATEGORIES.get(rubrique_id) if rubrique_id else None,
+        difficulty=score_to_difficulty(score_val),
+        score=score_val,
+        category_id=rubrique_id,
+        url=_challenge_link(data),
+        statement_html=html,
+        statement=BeautifulSoup(html, "html.parser").get_text("\n", strip=True),
         data=data,
+    )
+
+
+def challenge_summary(data: JSONObject, *, default_score: int | None = None) -> ChallengeSummary:
+    """Build a challenge summary from listing records."""
+    rubrique_id = integer(data, "id_rubrique")
+    score_val = integer(data, "score") or default_score
+    cid = integer(data, "id_challenge")
+    if cid is None:
+        raise UnexpectedResponseError("Missing challenge identifier in listing record.")
+    return ChallengeSummary(
+        id=cid,
+        title=text(data, "titre"),
+        category=RUBRIQUE_CATEGORIES.get(rubrique_id) if rubrique_id else None,
+        difficulty=score_to_difficulty(score_val),
+        score=score_val,
+        url=_challenge_link(data),
     )
 
 
@@ -92,10 +136,15 @@ def _challenge_link(data: JSONObject) -> str | None:
 
 def user(data: JSONObject, *, identifier: int | None = None) -> UserProfile:
     """Build a user profile from official API fields."""
+    validations = data.get("validations")
+    val_count = len(validations) if isinstance(validations, (list, dict)) else 0
+    pos = integer(data, "position")
     return UserProfile(
-        integer(data, "id_auteur") or identifier,
-        text(data, "nom"),
-        integer(data, "score"),
-        integer(data, "position"),
-        data,
+        id=integer(data, "id_auteur") or identifier,
+        name=text(data, "nom"),
+        score=integer(data, "score"),
+        position=pos,
+        rank=pos,
+        solved_challenges_count=val_count,
+        data=data,
     )
