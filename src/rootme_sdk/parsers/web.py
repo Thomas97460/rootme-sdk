@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup, Tag
 
 from ..errors import AuthenticationRequiredError, UnexpectedResponseError
 from ..models import (
+    Category,
     Challenge,
     FormField,
     Resource,
@@ -17,6 +18,7 @@ from ..models import (
     WebPage,
 )
 from ..urls import platform_url
+from .api import score_to_difficulty
 
 _ALREADY_SOLVED_MESSAGES = (
     "already validated this challenge",
@@ -108,6 +110,35 @@ def _base(soup: BeautifulSoup, url: str) -> str:
     return urljoin(url, attribute(base, "href")) if base else url
 
 
+_SLUG_CATEGORIES = (
+    ("web-serveur", Category.WEB_SERVER),
+    ("web-client", Category.WEB_CLIENT),
+    ("app-script", Category.APP_SCRIPT),
+    ("app-systeme", Category.APP_SYSTEM),
+    ("cracking", Category.CRACKING),
+    ("cryptanalyse", Category.CRYPTANALYSIS),
+    ("forensic", Category.FORENSIC),
+    ("programmation", Category.PROGRAMMING),
+    ("realiste", Category.REALISTIC),
+    ("reseau", Category.NETWORK),
+    ("steganographie", Category.STEGANOGRAPHY),
+)
+
+
+def _page_category(url: str) -> Category | None:
+    """Infer category from the verified challenge URL slug."""
+    lower = url.lower()
+    return next((cat for slug, cat in _SLUG_CATEGORIES if slug in lower), None)
+
+
+def _page_solved(soup: BeautifulSoup) -> bool:
+    """Detect if the challenge has already been validated by the current user."""
+    container = soup.select_one(
+        "#formulaire_validation_challenge, .formulaire_validation_challenge"
+    )
+    return bool(container and container.select_one(".reponse_formulaire_ok, .success"))
+
+
 def challenge_page(document: WebPage) -> Challenge:
     """Read the observed challenge title, identifier, statement and resource links."""
     soup = BeautifulSoup(document.html, "html.parser")
@@ -123,14 +154,22 @@ def challenge_page(document: WebPage) -> Challenge:
     points = re.search(r"\d+", score.get_text())
     if identity is None or points is None:
         raise UnexpectedResponseError("Missing challenge identifier or score.")
+    cid, score_val = int(identity[1]), int(points[0])
     statement = _statement(title)
+    authors = tuple(
+        a.get_text(strip=True) for a in soup.select('a[href*="auteur"], a[href*="author"]')
+    )
     return Challenge(
-        int(identity[1]),
-        title.get_text(" ", strip=True),
-        int(points[0]),
+        id=cid,
+        title=title.get_text(" ", strip=True),
+        category=_page_category(document.url),
+        difficulty=score_to_difficulty(score_val),
+        score=score_val,
+        solved=_page_solved(soup),
         url=document.url,
         statement_html=str(statement),
         statement=statement.get_text("\n", strip=True),
+        authors=authors,
         resources=links(statement, _base(soup, document.url)),
     )
 

@@ -59,21 +59,26 @@ Playwright is included. On first use, it automatically uses your local Chrome/Ch
 
 ## Quickstart
 
-### 1. Login and read challenges
+### 1. Search challenges and get full details
 
 ```python
-from rootme_sdk import RootMeClient
+from rootme_sdk import Category, Difficulty, RootMeClient
 
-# Connect with credentials directly
 with RootMeClient("your-username", "your-password") as client:
-    # Read a challenge statement
-    challenge = client.read_challenge(5)
+    # Search challenges by category, difficulty or title
+    for item in client.search_challenges(
+        category=Category.WEB_SERVER, difficulty=Difficulty.VERY_EASY
+    ):
+        print(f"[{item.id}] {item.title} ({item.score} pts)")
+
+    # Get complete challenge details, statement and resources
+    challenge = client.get_challenge(5)
     print(f"Title: {challenge.title}")
     print(f"Statement: {challenge.statement}")
 
-    # Browse challenges
-    for item in client.iter_challenges(score=5):
-        print(f"[{item.id}] {item.title} ({item.score} pts)")
+    # Read account profile
+    profile = client.get_profile()
+    print(f"User: {profile.username}, Score: {profile.score}, Rank: {profile.rank}")
 ```
 
 Alternatively, pass credentials via a JSON file:
@@ -84,17 +89,17 @@ Alternatively, pass credentials via a JSON file:
 
 ```python
 with RootMeClient(credentials_file=".secrets/credentials.json") as client:
-    user = client.get_user(12345)
-    print(f"User: {user.nom}, Score: {user.score}")
+    profile = client.get_profile()
+    print(f"User: {profile.username}, Score: {profile.score}")
 ```
 
-### 2. Submit an answer
+### 2. Submit a flag
 
 ```python
 from rootme_sdk import RootMeClient, SubmissionStatus
 
 with RootMeClient("your-username", "your-password") as client:
-    result = client.submit_answer(5, "flag{your_flag_here}")
+    result = client.submit_flag(5, "flag{your_flag_here}")
 
     if result.status == SubmissionStatus.ACCEPTED:
         print("Flag validated!")
@@ -102,8 +107,6 @@ with RootMeClient("your-username", "your-password") as client:
         print("Challenge already solved.")
     elif result.status == SubmissionStatus.REJECTED:
         print("Incorrect flag.")
-    elif result.status == SubmissionStatus.INDETERMINATE:
-        print(f"Ambiguous response: {result.message}")
 ```
 
 ### 3. Session reuse

@@ -21,9 +21,13 @@ from .errors import (
     UnexpectedResponseError,
 )
 from .models import (
+    CATEGORY_RUBRIQUES,
+    DIFFICULTY_SCORES,
     Category,
     Challenge,
+    ChallengeSummary,
     Collection,
+    Difficulty,
     JSONObject,
     JSONValue,
     Resource,
@@ -181,6 +185,80 @@ class RootMeClient:
         url = self._challenge_url(reference)
         return web.challenge_page(self._get_page(url))
 
+    def search_challenges(
+        self,
+        *,
+        query: str | None = None,
+        category: Category | None = None,
+        difficulty: Difficulty | None = None,
+        score: int | None = None,
+        limit: int = 10,
+    ) -> Iterator[ChallengeSummary]:
+        """Search challenges with native category, query, difficulty and score filters."""
+        if limit <= 0:
+            raise ValueError("Limit must be a positive integer.")
+        if score is not None and score < 0:
+            raise ValueError("Score must be a non-negative integer.")
+        if (
+            difficulty is not None
+            and score is not None
+            and api.score_to_difficulty(score) != difficulty
+        ):
+            return
+        params: dict[str, str | int] = {}
+        if query:
+            params["titre"] = query
+        if category is not None:
+            params["id_rubrique"] = CATEGORY_RUBRIQUES[category]
+        yield from self._dispatch_challenge_search(params, difficulty, score, limit)
+
+    def _dispatch_challenge_search(
+        self,
+        params: dict[str, str | int],
+        difficulty: Difficulty | None,
+        score: int | None,
+        limit: int,
+    ) -> Iterator[ChallengeSummary]:
+        """Dispatch query according to score or difficulty constraints up to limit."""
+        if score is not None:
+            scores: tuple[int, ...] = (score,)
+        elif difficulty is not None:
+            scores = DIFFICULTY_SCORES[difficulty]
+        else:
+            yield from self._fetch_challenge_summaries(params, None, limit)
+            return
+
+        count = 0
+        for s in scores:
+            for item in self._fetch_challenge_summaries(
+                {**params, "score": s}, s, limit - count, difficulty
+            ):
+                yield item
+                count += 1
+                if count >= limit:
+                    return
+
+    def _fetch_challenge_summaries(
+        self,
+        params: dict[str, str | int],
+        default_score: int | None,
+        limit: int,
+        expected_difficulty: Difficulty | None = None,
+    ) -> Iterator[ChallengeSummary]:
+        """Fetch lazy challenge summary pages with bound score up to limit."""
+        count = 0
+        for summary in self._iterate(
+            f"{API_URL}/challenges",
+            lambda data: api.challenge_summary(data, default_score=default_score),
+            params,
+        ):
+            if expected_difficulty is not None and summary.difficulty != expected_difficulty:
+                continue
+            yield summary
+            count += 1
+            if count >= limit:
+                return
+
     def list_challenges(
         self,
         *,
@@ -253,6 +331,34 @@ class RootMeClient:
         )
         yield from self._iterate(f"{API_URL}/challenges", api.challenge, params)
 
+    def get_profile(self, user_id: int | None = None) -> UserProfile:
+        """Read a user profile for the current account or a specified account ID.
+
+        Args:
+            user_id: Optional numeric account ID (defaults to authenticated account).
+
+        Returns:
+            UserProfile: Flat user profile with score, rank, and solved challenges count.
+        """
+        if user_id is not None:
+            _identifier(user_id)
+            target_id = user_id
+        else:
+            target_id = self._current_user_id()
+        return api.user(self._one(f"/auteurs/{target_id}"), identifier=target_id)
+
+    def _current_user_id(self) -> int:
+        """Extract the numeric author ID from the active spip_session cookie."""
+        spip = self.session.spip_session
+        if not spip:
+            raise AuthenticationRequiredError(
+                "Profile inspection requires an authenticated account.", reason="missing"
+            )
+        prefix = spip.split("_")[0]
+        if prefix.isdecimal():
+            return int(prefix)
+        raise UnexpectedResponseError("Unable to determine current account ID.")
+
     def get_user(self, identifier: int) -> UserProfile:
         """Read a profile, including the platform's solved-challenge data.
 
@@ -262,30 +368,19 @@ class RootMeClient:
         Returns:
             UserProfile: Account profile and statistics.
         """
-        _identifier(identifier)
-        return api.user(self._one(f"/auteurs/{identifier}"), identifier=identifier)
+        return self.get_profile(identifier)
 
     def list_categories(self, *, language: str = "en") -> tuple[Category, ...]:
-        """Discover category links from the live challenge catalogue.
+        """Return all supported challenge categories as standard enums.
 
         Args:
             language: Interface language code ("en" or "fr").
 
         Returns:
-            tuple[Category, ...]: Discovered categories and their paths.
+            tuple[Category, ...]: Supported category enums.
         """
         _language(language)
-        document = self._get_page(f"{WEB_URL}/{language}/Challenges/")
-        prefix = f"/{language}/Challenges/"
-        return tuple(
-            Category(link.label, link.url)
-            for link in document.links
-            if urlsplit(link.url).hostname == WEB_HOST
-            and urlsplit(link.url).path.startswith(prefix)
-            and len(urlsplit(link.url).path[len(prefix) :].strip("/").split("/")) == 1
-            and urlsplit(link.url).path != prefix
-            and link.label
-        )
+        return tuple(Category)
 
     def _get_page(self, url: str) -> WebPage:
         """Read an anonymous or authenticated page and discover its forms and links."""
@@ -360,6 +455,18 @@ class RootMeClient:
             authenticated=current.name != "login",
         )
         return web.page(response.text, str(response.url))
+
+    def submit_flag(self, challenge_id: int, flag: str) -> SubmissionResult:
+        """Submit a flag for a challenge and receive a standardized verdict.
+
+        Args:
+            challenge_id: Numeric ID of the challenge to validate.
+            flag: The secret flag/answer string to submit.
+
+        Returns:
+            SubmissionResult: The submission outcome and server message.
+        """
+        return self.submit_answer(challenge_id, flag)
 
     def submit_answer(self, reference: int | str, answer: str) -> SubmissionResult:
         """Submit exactly once and report uncertainty rather than replaying an answer.

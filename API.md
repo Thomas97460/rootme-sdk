@@ -41,15 +41,16 @@ Ordinary users need only credentials. `client.session.save(path)` is opt-in.
 | `login(username, password)` or `login(credentials_file=...)` | `Session`; authenticate/reconnect using the graphical browser |
 | `logout()` | `None`; request server logout, clear local state and close the browser |
 | `close()` | `None`; release browser and HTTP resources |
-| `get_user(identifier)` | `UserProfile`; `id`, `name`, `score`, `position`, additional JSON in `data` |
+| `search_challenges(query=None, category=None, difficulty=None, score=None, limit=10)` | `Iterator[ChallengeSummary]`; search challenges by title, category enum, difficulty enum, or score |
+| `get_challenge(id_or_url)` / `read_challenge(id_or_url)` | `Challenge`; flat challenge details, statement, authors, difficulty, and resources |
+| `submit_flag(challenge_id, flag)` / `submit_answer(id_or_url, answer)` | `SubmissionResult`; status (`ACCEPTED`, `REJECTED`, `ALREADY_SOLVED`), sanitized message and retry interval |
+| `get_profile(user_id=None)` | `UserProfile`; flat account profile (`id`, `username`, `score`, `rank`, `solved_challenges_count`) |
+| `get_user(identifier)` | `UserProfile`; read profile by numeric account ID |
 | `preferences(language="en")` | `WebPage`; current editable controls in `forms` |
 | `update_preferences(changes, files=None)` | `WebPage`; send selected editable fields once, refreshing hidden tokens |
-| `get_challenge(id)` | `Challenge`; authenticated API metadata, often without a statement |
-| `get_challenge(url)` / `read_challenge(id_or_url)` | `Challenge`; full website statement and resources |
-| `list_challenges(title=None, subtitle=None, language=None, score=None, author_ids=(), **extra_filters)` | `Collection[Challenge]`; one API page, with `items` and `next_url`; all filters are keyword-only |
-| `iter_challenges(title=None, subtitle=None, language=None, score=None, author_ids=(), **extra_filters)` | `Iterator[Challenge]`; lazy pagination across all pages using the same filters |
-| `list_categories(language="en")` | `tuple[Category, ...]`; category `title` and `url` |
-| `submit_answer(id_or_url, answer)` | `SubmissionResult`; status, sanitized feedback and optional retry interval |
+| `list_challenges(title=None, subtitle=None, language=None, score=None, author_ids=(), **extra_filters)` | `Collection[Challenge]`; one raw API page, with `items` and `next_url` |
+| `iter_challenges(title=None, subtitle=None, language=None, score=None, author_ids=(), **extra_filters)` | `Iterator[Challenge]`; lazy pagination across all pages using raw filters |
+| `list_categories(language="en")` | `tuple[Category, ...]`; all supported category enums |
 | `download(resource_or_https_url, destination=None)` | `bytes`; optionally write to the supplied path; external hosts receive no account cookies |
 
 Language arguments on website methods are keyword-only and accept `en` or `fr`.

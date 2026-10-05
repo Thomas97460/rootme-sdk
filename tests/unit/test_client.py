@@ -7,6 +7,8 @@ import pytest
 
 from rootme_sdk import (
     AuthenticationRequiredError,
+    Category,
+    Difficulty,
     HumanInterventionRequiredError,
     NotFoundError,
     Resource,
@@ -183,7 +185,7 @@ def test_web_read_categories_and_download(fixture_html: Path, tmp_path: Path) ->
     ) as client:
         assert client.get_challenge(CHALLENGE).id == 7
         assert client.read_challenge(7).id == 7
-        assert [c.title for c in client.list_categories()] == ["Example"]
+        assert Category.WEB_SERVER in client.list_categories()
         assert client.download("https://repository.root-me.org/file") == b"file"
         target = tmp_path / "file"
         assert client.download(Resource("https://repository.root-me.org/file"), target) == b"file"
@@ -509,3 +511,153 @@ def test_lazy_pagination_terminates_on_404_continuation() -> None:
     ) as client:
         iterator = client.iter_challenges(score=5)
         assert [c.title for c in iterator] == ["First"]
+
+
+def test_search_challenges_validation() -> None:
+    client = RootMeClient(
+        spip_session="test-session", transport=httpx.MockTransport(lambda r: httpx.Response(200))
+    )
+    with pytest.raises(ValueError, match="Limit"):
+        list(client.search_challenges(limit=0))
+    with pytest.raises(ValueError, match="Score"):
+        list(client.search_challenges(score=-1))
+    # Contradictory difficulty and score yields empty iterator
+    assert list(client.search_challenges(difficulty=Difficulty.HARD, score=5)) == []
+
+
+def test_search_challenges_filtering_and_pagination() -> None:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.url.params.get("debut_challenges") == "2":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "0": {
+                            "id_challenge": "3",
+                            "titre": "Web 3",
+                            "id_rubrique": "68",
+                            "score": "5",
+                        }
+                    }
+                ],
+            )
+        return httpx.Response(
+            200,
+            json=[
+                {"0": {"id_challenge": "1", "titre": "Web 1", "id_rubrique": "68", "score": "5"}},
+                {"1": {"id_challenge": "2", "titre": "Web 2", "id_rubrique": "68", "score": "50"}},
+                {"rel": "next", "href": API + "/challenges?debut_challenges=2"},
+            ],
+        )
+
+    with RootMeClient(
+        spip_session="test-session", transport=httpx.MockTransport(handler)
+    ) as client:
+        results = list(
+            client.search_challenges(
+                query="Web",
+                category=Category.WEB_SERVER,
+                difficulty=Difficulty.VERY_EASY,
+                score=5,
+                limit=2,
+            )
+        )
+        assert len(results) == 2
+        assert results[0].id == 1 and results[0].difficulty == Difficulty.VERY_EASY
+        assert results[1].id == 3 and results[1].category == Category.WEB_SERVER
+        assert calls[0].url.params["id_rubrique"] == "68"
+        assert calls[0].url.params["titre"] == "Web"
+        assert calls[0].url.params["score"] == "5"
+
+
+def test_search_challenges_by_difficulty_and_unfiltered() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        score = request.url.params.get("score")
+        if score == "5":
+            return httpx.Response(200, json=[{"0": {"id_challenge": "10", "titre": "C10"}}])
+        if score == "10":
+            return httpx.Response(200, json=[{"0": {"id_challenge": "11", "titre": "C11"}}])
+        return httpx.Response(200, json=[{"0": {"id_challenge": "20", "titre": "C20"}}])
+
+    with RootMeClient(
+        spip_session="test-session", transport=httpx.MockTransport(handler)
+    ) as client:
+        # Search by difficulty (fetches score=5 then score=10)
+        by_diff = list(client.search_challenges(difficulty=Difficulty.VERY_EASY, limit=2))
+        assert len(by_diff) == 2
+        assert by_diff[0].score == 5 and by_diff[0].difficulty == Difficulty.VERY_EASY
+        assert by_diff[1].score == 10 and by_diff[1].difficulty == Difficulty.VERY_EASY
+
+        # Search unfiltered with default limit
+        unfiltered = list(client.search_challenges(limit=1))
+        assert len(unfiltered) == 1
+        assert unfiltered[0].id == 20 and unfiltered[0].score is None
+
+
+def test_submit_flag_delegates_to_submit_answer() -> None:
+    html = (
+        '<div class="tile"><h1 class="challenge-titre-7">Test</h1>'
+        '<span class="challenge-score-7">10</span><div class="t-body">Body</div>'
+        '<form id="formulaire_validation_challenge" action="' + CHALLENGE + '" method="post">'
+        '<input type="hidden" name="formulaire_action" value="validation_challenge"/>'
+        '<input type="text" name="passe" value=""/>'
+        '<input type="submit" name="submit" value="valider"/>'
+        "</form></div>"
+    )
+    ok_html = (
+        '<div id="formulaire_validation_challenge">'
+        '<div class="reponse_formulaire_ok">Bravo !</div></div>'
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.www.root-me.org":
+            return httpx.Response(200, json={"titre": "Test", "url_challenge": CHALLENGE})
+        if request.method == "POST":
+            return httpx.Response(200, text=ok_html)
+        return httpx.Response(200, text=html)
+
+    with RootMeClient(
+        spip_session="test-session", transport=httpx.MockTransport(handler)
+    ) as client:
+        result = client.submit_flag(7, "flag{test}")
+        assert result.status == SubmissionStatus.ACCEPTED
+
+
+def test_get_profile_authenticated_and_explicit_user() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        uid = request.url.path.split("/")[-1]
+        data = {
+            "id_auteur": uid,
+            "nom": "User" + uid,
+            "score": "150",
+            "position": "10",
+            "validations": {"0": {"id_challenge": "5"}},
+        }
+        return httpx.Response(200, json=[data, {"rel": "self", "href": str(request.url)}])
+
+    with RootMeClient(
+        spip_session="779366_testtoken", transport=httpx.MockTransport(handler)
+    ) as client:
+        profile = client.get_profile()
+        assert profile.id == 779366
+        assert profile.username == "User779366"
+        assert profile.score == 150
+        assert profile.rank == 10
+        assert profile.solved_challenges_count == 1
+        other = client.get_profile(42)
+        assert other.id == 42
+
+    with (
+        RootMeClient(transport=httpx.MockTransport(handler)) as anonymous,
+        pytest.raises(AuthenticationRequiredError),
+    ):
+        anonymous.get_profile()
+
+    with (
+        RootMeClient(spip_session="badtoken", transport=httpx.MockTransport(handler)) as invalid,
+        pytest.raises(UnexpectedResponseError),
+    ):
+        invalid.get_profile()
