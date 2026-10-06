@@ -59,61 +59,78 @@ Playwright is included. On first use, it automatically uses your local Chrome/Ch
 
 ## Quickstart
 
-### 1. Search challenges and get full details
+Every example runs inside a connected client. Login opens a graphical Chromium window
+and fills the form automatically; you only supply credentials.
 
 ```python
-from rootme_sdk import Category, Difficulty, RootMeClient
+from rootme_sdk import RootMeClient
 
 with RootMeClient("your-username", "your-password") as client:
-    # Search challenges by category, difficulty or title
-    for item in client.search_challenges(
-        category=Category.WEB_SERVER, difficulty=Difficulty.VERY_EASY
-    ):
-        print(f"[{item.id}] {item.title} ({item.score} pts)")
-
-    # Get complete challenge details, statement and resources
-    challenge = client.get_challenge(5)
-    print(f"Title: {challenge.title}")
-    print(f"Statement: {challenge.statement}")
-    for resource in challenge.resources:
-        print(f"{resource.label}: {resource.url}")
-
-    # Read account profile
-    profile = client.get_profile()
-    print(f"User: {profile.username}, Score: {profile.score}, Rank: {profile.rank}")
+    ...
 ```
 
-Alternatively, pass credentials via a JSON file:
+Or `RootMeClient(credentials_file=".secrets/credentials.json")` with
+`{"login": "your-username", "password": "your-password"}`.
 
-```json
-{"login": "your-username", "password": "your-password"}
-```
+### 1. Find a challenge by its name
 
 ```python
-with RootMeClient(credentials_file=".secrets/credentials.json") as client:
-    profile = client.get_profile()
-    print(f"User: {profile.username}, Score: {profile.score}")
+summary = next(client.search_challenges(query="ELF x86 - 0 protection"))
+print(summary.id, summary.title)  # 41 ELF x86 - 0 protection
 ```
 
-### 2. Submit a flag
+### 2. Read its statement
 
 ```python
-from rootme_sdk import RootMeClient, SubmissionStatus
-
-with RootMeClient("your-username", "your-password") as client:
-    result = client.submit_flag(5, "flag{your_flag_here}")
-
-    if result.status == SubmissionStatus.ACCEPTED:
-        print("Flag validated!")
-    elif result.status == SubmissionStatus.ALREADY_SOLVED:
-        print("Challenge already solved.")
-    elif result.status == SubmissionStatus.REJECTED:
-        print("Incorrect flag.")
+challenge = client.get_challenge(summary.id)
+print(challenge.statement)
 ```
 
-### 3. Session reuse
+### 3. Download the challenge files
 
-Save the session to avoid re-authenticating on every run:
+A challenge page exposes two different kinds of links:
+
+- `challenge.files`: the challenge's own material behind the statement's
+  *Download the challenge* button (binary, archive, capture, image…).
+- `challenge.resources`: documentation and references Root-Me associates with
+  the challenge (PDFs, articles, videos).
+
+```python
+paths = client.download_files(challenge, "challenges/41")
+print(paths)  # (PosixPath('challenges/41/ch1.zip'),)
+
+for resource in challenge.resources:
+    print(resource.label, resource.url)  # read or download them only if useful
+```
+
+To fetch a single file or resource, use `client.download(resource, "elf.pdf")`.
+
+### 4. Submit a flag
+
+```python
+from rootme_sdk import SubmissionStatus
+
+result = client.submit_flag(41, "your-flag")
+if result.status == SubmissionStatus.ACCEPTED:
+    print("Flag validated!")
+else:
+    print(result.status, result.message)
+```
+
+### 5. Browse challenges with filters
+
+```python
+from rootme_sdk import Category, Difficulty
+
+for item in client.search_challenges(
+    category=Category.CRACKING, difficulty=Difficulty.EASY, limit=20
+):
+    print(f"[{item.id}] {item.title} ({item.score} pts)")
+```
+
+`score=` targets an exact point value; `query=` and the filters can be combined.
+
+### Reuse a session
 
 ```python
 from rootme_sdk import RootMeClient, Session
@@ -121,9 +138,8 @@ from rootme_sdk import RootMeClient, Session
 with RootMeClient("your-username", "your-password") as client:
     client.session.save(".secrets/session.json")
 
-# Later: reload the saved session
 with RootMeClient(session=Session.load(".secrets/session.json")) as client:
-    challenge = client.read_challenge(5)
+    challenge = client.get_challenge(41)
 ```
 
 ## Important Notes

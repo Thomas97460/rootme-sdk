@@ -24,7 +24,8 @@ def test_reusable_session_read_download_submit_and_logout(fixture_html: Path) ->
         if request.url.host == "api.www.root-me.org":
             assert request.headers["cookie"] == "spip_session=test-session"
             return httpx.Response(200, json=[{"titre": "Example", "url_challenge": CHALLENGE}])
-        if request.url.path == "/files/example.zip":
+        if request.url.host == "static.root-me.org":
+            assert request.headers["cookie"] == ""
             return httpx.Response(302, headers={"location": "https://challenge01.root-me.org/file"})
         if request.url.host == "challenge01.root-me.org":
             assert request.headers["cookie"] == ""
@@ -40,7 +41,7 @@ def test_reusable_session_read_download_submit_and_logout(fixture_html: Path) ->
     with RootMeClient(spip_session="test-session", transport=httpx.MockTransport(server)) as client:
         result = client.read_challenge(7)
         assert "Read the supplied file" in result.statement
-        assert client.download(result.resources[0]) == b"synthetic-archive"
+        assert client.download(result.files[0]) == b"synthetic-archive"
         assert (
             client.submit_answer(CHALLENGE, "synthetic-answer").status == SubmissionStatus.ACCEPTED
         )

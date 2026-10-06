@@ -30,12 +30,13 @@ for offline tests). Managed browser login has a separate 180-second timeout;
 eligible waiting intervals; ambiguous authentication attempts and writes are never replayed.
 During login, the SDK waits only for the form's initialization and the username's
 identity lookup, without waiting for unrelated page assets or background AJAX.
-Form readiness and field entry waits are capped at 30 seconds (or the shorter
-browser timeout), with separate errors for readiness, identity and field entry.
+Each interactive login step (form readiness, identity lookup, field entry, submission
+and account check) is capped at 10 seconds (or the shorter browser timeout), with
+separate errors for readiness, identity and field entry.
 It checks account access through the hidden preferences form and captures
-the final cookies. If a session is present but that form is missing, it retries
-only the preferences GET once; each form wait is capped at 15 seconds (or the
-shorter browser timeout). Network errors and rate limits propagate immediately.
+the final cookies. A redirect from preferences to the login page is an immediate
+rejection; if a session is present but that form is otherwise missing, it retries
+only the preferences GET once. Network errors and rate limits propagate immediately.
 If native login redirected away from the form but the resulting session is
 explicitly rejected, the SDK removes only that session cookie and tries login
 once more. A persistent rejection, missing session, credentials rejected on the
@@ -54,7 +55,7 @@ Ordinary users need only credentials. `client.session.save(path)` is opt-in.
 | `logout()` | `None`; request server logout, clear local state and close the browser |
 | `close()` | `None`; release browser and HTTP resources |
 | `search_challenges(query=None, category=None, difficulty=None, score=None, limit=10)` | `Iterator[ChallengeSummary]`; search challenges by title, category enum, difficulty enum, or score |
-| `get_challenge(id_or_url)` / `read_challenge(id_or_url)` | `Challenge`; flat challenge details, statement, authors, difficulty, and resources |
+| `get_challenge(id_or_url)` / `read_challenge(id_or_url)` | `Challenge`; flat challenge details, statement, authors, difficulty, files and resources |
 | `submit_flag(challenge_id, flag)` / `submit_answer(id_or_url, answer)` | `SubmissionResult`; status (`ACCEPTED`, `REJECTED`, `ALREADY_SOLVED`), sanitized message and retry interval |
 | `get_profile(user_id=None)` | `UserProfile`; flat account profile (`id`, `username`, `score`, `rank`, `solved_challenges_count`) |
 | `get_user(identifier)` | `UserProfile`; read profile by numeric account ID |
@@ -63,22 +64,31 @@ Ordinary users need only credentials. `client.session.save(path)` is opt-in.
 | `list_challenges(title=None, subtitle=None, language=None, score=None, author_ids=(), **extra_filters)` | `Collection[Challenge]`; one raw API page, with `items` and `next_url` |
 | `iter_challenges(title=None, subtitle=None, language=None, score=None, author_ids=(), **extra_filters)` | `Iterator[Challenge]`; lazy pagination across all pages using raw filters |
 | `list_categories(language="en")` | `tuple[Category, ...]`; all supported category enums |
-| `download(resource_or_https_url, destination=None)` | `bytes`; optionally write to the supplied path; external hosts receive no account cookies |
+| `download(resource_or_https_url, destination=None)` | `bytes`; optionally write to the supplied file path, or into an existing directory under the URL's file name; external hosts receive no account cookies |
+| `download_files(challenge, directory)` | `tuple[Path, ...]`; write every `challenge.files` entry into `directory` (created if missing) under its URL file name, overwriting existing files |
 
 Language arguments on website methods are keyword-only and accept `en` or `fr`.
 API IDs must be positive integers. `Challenge` exposes `id`, `title`, `score`,
-`category_id`, `url`, `statement`, `statement_html`, `resources` and `data`.
+`category_id`, `url`, `statement`, `statement_html`, `files`, `resources` and `data`.
 API fields absent from a response remain `None`; `.data` preserves extra JSON.
-Resources contain a `url` and `label`, including links to services and documentation;
-choose downloadable attachments rather than passing arbitrary service links.
-Both fields appear in the resource representation. Relative links are resolved
-against the page's HTML base URL, preserving query parameters and fragments.
+
+`files` and `resources` are both tuples of `Resource` (`url`, `label`, `filename`)
+but hold different things. `files` is the challenge's own material: links served by
+`static.root-me.org`, usually the statement's *Download the challenge* button.
+`resources` holds every other link: documentation and references Root-Me associates
+with the challenge, and other statement links. Start buttons for hosted instances
+appear in neither. Relative links are resolved against the page's HTML base URL,
+preserving query parameters and fragments. `Resource.filename` is the decoded last
+URL path segment and raises `ValueError` when it cannot safely name a local file.
 
 ```python
-challenge = client.get_challenge(5)
+challenge = client.get_challenge(41)
+client.download_files(challenge, "challenges/41")  # challenges/41/ch1.zip
 for resource in challenge.resources:
     print(resource.label, resource.url)
 ```
+
+Before 0.5.0, challenge files were listed in `resources`; read them from `files`.
 
 `WebPage` contains `url`, `title`, `text`, `html`, `links` and `forms`.
 Each `WebForm` exposes its name and typed `FormField` controls. Account updates
