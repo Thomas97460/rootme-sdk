@@ -222,6 +222,28 @@ def test_download_files_writes_only_challenge_files(tmp_path: Path) -> None:
     assert sorted(p.name for p in target.iterdir()) == ["ch1.pcap", "ch1.zip"]
 
 
+def test_download_files_reads_a_challenge_reference_into_the_current_directory(
+    fixture_html: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    html = (fixture_html / "challenge.html").read_text(encoding="utf-8")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.www.root-me.org":
+            return httpx.Response(200, json={"titre": "Example", "url_challenge": CHALLENGE})
+        if request.url.host == "static.root-me.org":
+            return httpx.Response(200, content=b"synthetic-archive")
+        return httpx.Response(200, text=html)
+
+    monkeypatch.chdir(tmp_path)
+    with RootMeClient(
+        spip_session="test-session", transport=httpx.MockTransport(handler)
+    ) as client:
+        assert client.download_files(7) == (Path("ch7.zip"),)
+        assert client.download_files(CHALLENGE, "by-url") == (Path("by-url/ch7.zip"),)
+    assert (tmp_path / "ch7.zip").read_bytes() == b"synthetic-archive"
+    assert (tmp_path / "by-url" / "ch7.zip").read_bytes() == b"synthetic-archive"
+
+
 def test_download_files_rejects_unsafe_names_before_writing(tmp_path: Path) -> None:
     challenge = Challenge(7, "Example", files=(Resource("https://static.root-me.org/a/.."),))
     with RootMeClient() as client, pytest.raises(ValueError):

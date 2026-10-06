@@ -554,16 +554,22 @@ class RootMeClient:
             (path / target.filename if path.is_dir() else path).write_bytes(data)
         return data
 
-    def download_files(self, challenge: Challenge, directory: str | Path) -> tuple[Path, ...]:
+    def download_files(
+        self, challenge: Challenge | int | str, directory: str | Path = "."
+    ) -> tuple[Path, ...]:
         """Download every challenge file, keeping the names from their URLs.
 
         Args:
-            challenge: Challenge whose ``files`` are downloaded; ``resources`` are not.
-            directory: Directory created when missing; existing files are overwritten.
+            challenge: Challenge, numeric challenge ID or website challenge URL whose
+                ``files`` are downloaded; ``resources`` are not.
+            directory: Directory created when missing, the current one by default;
+                existing files are overwritten.
 
         Returns:
             tuple[Path, ...]: Paths of the written files, in ``challenge.files`` order.
         """
+        if not isinstance(challenge, Challenge):
+            challenge = self.get_challenge(challenge)
         folder = Path(directory)
         paths = tuple(folder / file.filename for file in challenge.files)
         folder.mkdir(parents=True, exist_ok=True)
