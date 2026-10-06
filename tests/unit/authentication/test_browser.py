@@ -52,6 +52,12 @@ def engine(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     reply.all_headers.return_value = {}
     page.url = WEB + "?page=login"
     page.goto.return_value.status = 200
+
+    def navigate(url: str, **kwargs: object) -> MagicMock:
+        page.url = url
+        return page.goto.return_value
+
+    page.goto.side_effect = navigate
     page.evaluate.return_value = "Browser/1"
     page.locator.return_value.count.return_value = 1
     return instance
@@ -243,7 +249,7 @@ def test_unready_login_reports_its_stage_without_submitting(engine: MagicMock, s
         form = "jQuery.isReady" in script
         identity = kwargs.get("arg") == "Example"
         if form or identity:
-            assert kwargs["timeout"] == 30000
+            assert kwargs["timeout"] == 10000
         if stage == "form" and form or stage == "identity" and identity:
             raise PlaywrightTimeoutError("synthetic-password")
 
@@ -279,7 +285,7 @@ def test_unusable_login_controls_fail_without_leaking_or_resubmitting(engine: Ma
     with pytest.raises(NetworkError, match="fields") as failure:
         adapter.authenticate("Example", "synthetic-password")
     assert "synthetic-password" not in str(failure.value)
-    adapter.page.locator.return_value.fill.assert_called_once_with("Example", timeout=30000)
+    adapter.page.locator.return_value.fill.assert_called_once_with("Example", timeout=10000)
     adapter.page.locator.return_value.click.assert_not_called()
     adapter.context.clear_cookies.assert_not_called()
     adapter.close()
@@ -321,7 +327,7 @@ def test_identity_lookup_matches_the_supplied_login_before_password_entry(
     identity = next(call for call in waits if call.kwargs.get("arg") == "Example")
     assert "login_info.login === username" in identity.args[0]
     assert "!login_info.informe_auteur_en_cours" in identity.args[0]
-    adapter.page.locator.return_value.press.assert_called_once_with("Tab", timeout=30000)
+    adapter.page.locator.return_value.press.assert_called_once_with("Tab", timeout=10000)
     adapter.close()
 
 
@@ -335,6 +341,30 @@ def test_delayed_account_cookie_is_captured_after_hidden_form_arrives(engine: Ma
         state="attached",
         timeout=10000,
     )
+    adapter.close()
+
+
+def test_login_redirect_from_account_page_renews_session_without_waiting(
+    engine: MagicMock,
+) -> None:
+    adapter = BrowserSession(Session())
+    adapter.context.cookies.return_value = [cookie()]
+    adapter.page.wait_for_url.side_effect = lambda *args, **kwargs: setattr(
+        adapter.page, "url", WEB + "?page=news"
+    )
+    rejected = iter([True, True, False])
+
+    def navigate(url: str, **kwargs: object) -> MagicMock:
+        if "page=preferences" in url and next(rejected):
+            url = WEB + "?page=login&url=%2F%3Fpage%3Dpreferences"
+        adapter.page.url = url
+        return MagicMock(status=200)
+
+    adapter.page.goto.side_effect = navigate
+    assert adapter.authenticate("Example", "synthetic-password").spip_session == "test-session"
+    adapter.page.wait_for_selector.assert_called_once()
+    adapter.context.clear_cookies.assert_called_once_with(name="spip_session")
+    assert adapter.page.locator.return_value.click.call_count == 2
     adapter.close()
 
 
@@ -428,6 +458,7 @@ def test_redirect_finishes_before_navigation_to_the_account_page(engine: MagicMo
         adapter.context.cookies.return_value = [cookie()]
 
     def navigate(url: str, **kwargs: object) -> MagicMock:
+        login_page.url = url
         if "page=preferences" in url:
             login_page.close.assert_not_called()
             assert events == ["native-completed"]
