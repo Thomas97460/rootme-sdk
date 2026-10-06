@@ -145,7 +145,8 @@ def user(data: JSONObject, *, identifier: int | None = None) -> UserProfile:
     """Build a user profile from official API fields."""
     validations = data.get("validations")
     val_count = len(validations) if isinstance(validations, (list, dict)) else 0
-    pos = integer(data, "position")
+    # Accounts without points are unranked and report an empty position.
+    pos = None if data.get("position") == "" else integer(data, "position")
     return UserProfile(
         id=integer(data, "id_auteur") or identifier,
         name=text(data, "nom"),
