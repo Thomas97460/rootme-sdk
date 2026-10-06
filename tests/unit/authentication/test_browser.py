@@ -50,7 +50,7 @@ def engine(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     reply.url = WEB + "?page=login"
     reply.body.return_value = b"Login response"
     reply.all_headers.return_value = {}
-    page.url = WEB
+    page.url = WEB + "?page=login"
     page.goto.return_value.status = 200
     page.evaluate.return_value = "Browser/1"
     page.locator.return_value.count.return_value = 1
@@ -112,7 +112,7 @@ def test_authenticated_cookie_capture_and_rendered_page(engine: MagicMock) -> No
 
 def test_native_login_waits_for_post_and_confirms_account_access(engine: MagicMock) -> None:
     adapter = BrowserSession(Session(), timeout=10)
-    adapter.context.cookies.side_effect = [[], [cookie()]]
+    adapter.context.cookies.side_effect = [[], [cookie()], [cookie()]]
     login_page = adapter.page
     assert adapter.authenticate("Example", "synthetic-password").spip_session == "test-session"
     assert [call.args[0] for call in login_page.locator.return_value.fill.call_args_list] == [
@@ -120,7 +120,7 @@ def test_native_login_waits_for_post_and_confirms_account_access(engine: MagicMo
         "synthetic-password",
     ]
     pending = login_page.expect_response.return_value.__enter__.return_value.value
-    login_page.wait_for_load_state.assert_called_once_with("load")
+    login_page.wait_for_load_state.assert_not_called()
     pending.body.assert_called_once()
     login_page.locator.return_value.click.assert_called_once()
     login_page.wait_for_url.assert_called_once()
@@ -154,7 +154,7 @@ def test_ajax_login_succeeds_when_the_old_account_menu_never_updates(engine: Mag
     login_page.locator.side_effect = lambda selector: (
         account_form if "modifier_auteur" in selector else stale_menu
     )
-    adapter.context.cookies.side_effect = [[], [cookie()]]
+    adapter.context.cookies.side_effect = [[], [cookie()], [cookie()]]
     assert adapter.authenticate("Example", "synthetic-password").spip_session == "test-session"
     login_page.wait_for_url.assert_called_once()
     assert adapter.page is login_page
@@ -172,7 +172,7 @@ def test_complete_login_safely_handles_navigated_away_body_protocol_error(
     pending.body.side_effect = PlaywrightError(
         "Protocol error: Response body is not available for a response navigated away."
     )
-    adapter.context.cookies.side_effect = [[], [cookie()]]
+    adapter.context.cookies.side_effect = [[], [cookie()], [cookie()]]
     assert adapter.authenticate("Example", "synthetic-password").spip_session == "test-session"
     adapter.close()
 
@@ -186,23 +186,26 @@ def test_identity_lookup_settles_before_submission_and_account_navigation(
     events = []
 
     def wait(script: str, **kwargs: object) -> None:
-        if "jQuery.active" in script:
-            events.append("ajax-idle")
+        if "jQuery.isReady" in script:
+            events.append("form-ready")
+        if kwargs.get("arg") == "Example":
+            events.append("identity-complete")
 
     page.wait_for_function.side_effect = wait
-    page.locator.return_value.fill.side_effect = lambda value: events.append("fill")
-    page.locator.return_value.click.side_effect = lambda: events.append("submit")
+    page.locator.return_value.fill.side_effect = lambda value, **kwargs: events.append("fill")
+    page.locator.return_value.press.side_effect = lambda key, **kwargs: events.append("blur-login")
+    page.locator.return_value.click.side_effect = lambda **kwargs: events.append("submit")
     reply = page.expect_response.return_value.__enter__.return_value.value
     reply.body.side_effect = lambda: events.append("response-complete") or b"Login response"
     assert adapter.authenticate("Example", "synthetic-password").spip_session == "test-session"
     assert events == [
-        "ajax-idle",
+        "form-ready",
         "fill",
+        "blur-login",
+        "identity-complete",
         "fill",
-        "ajax-idle",
         "submit",
         "response-complete",
-        "ajax-idle",
     ]
     adapter.close()
 
@@ -211,6 +214,180 @@ def test_account_form_without_cookie_is_rejected(engine: MagicMock) -> None:
     adapter = BrowserSession(Session())
     with pytest.raises(AuthenticationRequiredError):
         adapter.authenticate("Example", "synthetic-password")
+    adapter.close()
+
+
+def test_login_form_does_not_wait_for_background_requests_or_all_page_assets(
+    engine: MagicMock,
+) -> None:
+    adapter = BrowserSession(Session())
+    adapter.context.cookies.return_value = [cookie()]
+    adapter.page.wait_for_load_state.side_effect = PlaywrightTimeoutError("Background assets")
+
+    def wait(script: str, **kwargs: object) -> None:
+        if "jQuery.active" in script:
+            raise PlaywrightTimeoutError("Unrelated AJAX never stops")
+
+    adapter.page.wait_for_function.side_effect = wait
+    assert adapter.authenticate("Example", "synthetic-password").spip_session == "test-session"
+    adapter.page.locator.return_value.click.assert_called_once()
+    adapter.page.wait_for_load_state.assert_not_called()
+    adapter.close()
+
+
+@pytest.mark.parametrize("stage", ["form", "identity"])
+def test_unready_login_reports_its_stage_without_submitting(engine: MagicMock, stage: str) -> None:
+    adapter = BrowserSession(Session())
+
+    def wait(script: str, **kwargs: object) -> None:
+        form = "jQuery.isReady" in script
+        identity = kwargs.get("arg") == "Example"
+        if form or identity:
+            assert kwargs["timeout"] == 30000
+        if stage == "form" and form or stage == "identity" and identity:
+            raise PlaywrightTimeoutError("synthetic-password")
+
+    adapter.page.wait_for_function.side_effect = wait
+    with pytest.raises(NetworkError, match="form" if stage == "form" else "identity") as failure:
+        adapter.authenticate("Example", "synthetic-password")
+    assert "synthetic-password" not in str(failure.value)
+    assert adapter.page.locator.return_value.fill.call_count == (0 if stage == "form" else 1)
+    adapter.page.locator.return_value.click.assert_not_called()
+    adapter.context.clear_cookies.assert_not_called()
+    adapter.close()
+
+
+def test_rejected_session_after_native_redirect_is_renewed_once(engine: MagicMock) -> None:
+    adapter = BrowserSession(Session())
+    adapter.context.cookies.return_value = [cookie()]
+    adapter.page.wait_for_url.side_effect = lambda *args, **kwargs: setattr(
+        adapter.page, "url", WEB + "?page=news"
+    )
+    adapter.page.locator.return_value.count.side_effect = [0, 0, 1]
+    assert adapter.authenticate("Example", "synthetic-password").spip_session == "test-session"
+    adapter.context.clear_cookies.assert_called_once_with(name="spip_session")
+    assert adapter.page.locator.return_value.fill.call_count == 4
+    assert adapter.page.locator.return_value.click.call_count == 2
+    adapter.close()
+
+
+def test_unusable_login_controls_fail_without_leaking_or_resubmitting(engine: MagicMock) -> None:
+    adapter = BrowserSession(Session())
+    adapter.page.locator.return_value.fill.side_effect = PlaywrightTimeoutError(
+        "synthetic-password"
+    )
+    with pytest.raises(NetworkError, match="fields") as failure:
+        adapter.authenticate("Example", "synthetic-password")
+    assert "synthetic-password" not in str(failure.value)
+    adapter.page.locator.return_value.fill.assert_called_once_with("Example", timeout=30000)
+    adapter.page.locator.return_value.click.assert_not_called()
+    adapter.context.clear_cookies.assert_not_called()
+    adapter.close()
+
+
+def test_persistently_rejected_sessions_stop_after_one_renewal(engine: MagicMock) -> None:
+    adapter = BrowserSession(Session())
+    adapter.context.cookies.return_value = [cookie()]
+    adapter.page.wait_for_url.side_effect = lambda *args, **kwargs: setattr(
+        adapter.page, "url", WEB + "?page=news"
+    )
+    adapter.page.locator.return_value.count.return_value = 0
+    with pytest.raises(AuthenticationRequiredError):
+        adapter.authenticate("Example", "synthetic-password")
+    adapter.context.clear_cookies.assert_called_once_with(name="spip_session")
+    assert adapter.page.locator.return_value.click.call_count == 2
+    adapter.close()
+
+
+def test_redirect_without_session_does_not_replay_credentials(engine: MagicMock) -> None:
+    adapter = BrowserSession(Session())
+    adapter.page.wait_for_url.side_effect = lambda *args, **kwargs: setattr(
+        adapter.page, "url", WEB + "?page=news"
+    )
+    with pytest.raises(AuthenticationRequiredError):
+        adapter.authenticate("Example", "synthetic-password")
+    adapter.context.clear_cookies.assert_not_called()
+    adapter.page.locator.return_value.click.assert_called_once()
+    adapter.close()
+
+
+def test_identity_lookup_matches_the_supplied_login_before_password_entry(
+    engine: MagicMock,
+) -> None:
+    adapter = BrowserSession(Session())
+    adapter.context.cookies.return_value = [cookie()]
+    adapter.authenticate("Example", "synthetic-password")
+    waits = adapter.page.wait_for_function.call_args_list
+    identity = next(call for call in waits if call.kwargs.get("arg") == "Example")
+    assert "login_info.login === username" in identity.args[0]
+    assert "!login_info.informe_auteur_en_cours" in identity.args[0]
+    adapter.page.locator.return_value.press.assert_called_once_with("Tab", timeout=30000)
+    adapter.close()
+
+
+def test_delayed_account_cookie_is_captured_after_hidden_form_arrives(engine: MagicMock) -> None:
+    adapter = BrowserSession(Session(), timeout=10)
+    adapter.context.cookies.side_effect = [[], [], [cookie()]]
+    result = adapter.authenticate("Example", "synthetic-password")
+    assert result.spip_session == "test-session"
+    adapter.page.wait_for_selector.assert_called_once_with(
+        'input[name="formulaire_action"][value="modifier_auteur"]',
+        state="attached",
+        timeout=10000,
+    )
+    adapter.close()
+
+
+def test_missing_account_form_after_timeout_is_rejected_without_replay(engine: MagicMock) -> None:
+    adapter = BrowserSession(Session(), timeout=1)
+    adapter.context.cookies.return_value = [cookie()]
+    adapter.page.wait_for_selector.side_effect = PlaywrightTimeoutError("private")
+    adapter.page.locator.return_value.count.return_value = 0
+    with pytest.raises(AuthenticationRequiredError):
+        adapter.authenticate("Example", "synthetic-password")
+    adapter.page.locator.return_value.click.assert_called_once()
+    assert adapter.page.goto.call_count == 3
+    adapter.close()
+
+
+def test_new_session_retries_account_read_without_resending_credentials(engine: MagicMock) -> None:
+    adapter = BrowserSession(Session(), timeout=10)
+    adapter.context.cookies.return_value = [cookie()]
+    adapter.page.locator.return_value.count.side_effect = [0, 1]
+    assert adapter.authenticate("Example", "synthetic-password").spip_session == "test-session"
+    assert [call.args[0] for call in adapter.page.goto.call_args_list] == [
+        WEB + "?page=login&lang=en",
+        WEB + "?page=preferences&lang=en",
+        WEB + "?page=preferences&lang=en",
+    ]
+    adapter.page.locator.return_value.click.assert_called_once()
+    assert adapter.page.locator.return_value.fill.call_count == 2
+    adapter.close()
+
+
+def test_account_read_retry_does_not_bypass_rate_limits(engine: MagicMock) -> None:
+    adapter = BrowserSession(Session())
+    adapter.context.cookies.return_value = [cookie()]
+    adapter.page.locator.return_value.count.return_value = 0
+    replies = [MagicMock(status=200), MagicMock(status=200), MagicMock(status=429)]
+    for reply in replies:
+        reply.all_headers.return_value = {"retry-after": "60"}
+    adapter.page.goto.side_effect = replies
+    with pytest.raises(RateLimitedError) as failure:
+        adapter.authenticate("Example", "synthetic-password")
+    assert failure.value.retry_after == 60
+    assert adapter.page.goto.call_count == 3
+    adapter.page.locator.return_value.click.assert_called_once()
+    adapter.close()
+
+
+def test_account_verification_browser_error_is_not_credential_rejection(engine: MagicMock) -> None:
+    adapter = BrowserSession(Session())
+    adapter.context.cookies.return_value = [cookie()]
+    adapter.page.wait_for_selector.side_effect = PlaywrightError("synthetic-password")
+    with pytest.raises(NetworkError) as failure:
+        adapter.authenticate("Example", "synthetic-password")
+    assert "synthetic-password" not in str(failure.value)
     adapter.close()
 
 
@@ -275,6 +452,37 @@ def test_unfinished_native_login_never_opens_confirmation_or_replays(engine: Mag
     with pytest.raises(NetworkError):
         adapter.authenticate("Example", "synthetic-password")
     assert adapter.context.new_page.call_count == 1
+    adapter.page.locator.return_value.click.assert_called_once()
+    adapter.close()
+
+
+@pytest.mark.parametrize(
+    "url,completed",
+    [
+        (WEB + "?page=login&lang=en", False),
+        (WEB + "?lang=en&page=login", False),
+        (WEB + "?lang=en&page=%6Cogin#formulaire_login", False),
+        (WEB + "?page=preferences&lang=en", True),
+        (WEB + "en/", True),
+    ],
+)
+def test_ajax_redirect_detection_parses_query_parameters(
+    engine: MagicMock, url: str, completed: bool
+) -> None:
+    adapter = BrowserSession(Session())
+    adapter.context.cookies.return_value = [cookie()]
+    adapter.authenticate("Example", "synthetic-password")
+    predicate = adapter.page.wait_for_url.call_args.args[0]
+    assert predicate(url) is completed
+    adapter.close()
+
+
+def test_ajax_navigation_browser_error_stops_before_account_confirmation(engine: MagicMock) -> None:
+    adapter = BrowserSession(Session())
+    adapter.page.wait_for_url.side_effect = PlaywrightError("private")
+    with pytest.raises(NetworkError):
+        adapter.authenticate("Example", "synthetic-password")
+    assert adapter.page.goto.call_count == 1
     adapter.page.locator.return_value.click.assert_called_once()
     adapter.close()
 

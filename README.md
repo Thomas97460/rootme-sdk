@@ -75,6 +75,8 @@ with RootMeClient("your-username", "your-password") as client:
     challenge = client.get_challenge(5)
     print(f"Title: {challenge.title}")
     print(f"Statement: {challenge.statement}")
+    for resource in challenge.resources:
+        print(f"{resource.label}: {resource.url}")
 
     # Read account profile
     profile = client.get_profile()

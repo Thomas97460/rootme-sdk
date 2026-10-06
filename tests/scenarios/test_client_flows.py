@@ -91,7 +91,7 @@ def test_file_credentials_handle_js_read_and_submit_without_extra_calls(
             else []
         )
 
-    def clicked() -> None:
+    def clicked(**kwargs: object) -> None:
         nonlocal logged_in
         logged_in = True
 

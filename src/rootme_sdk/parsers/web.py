@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup, Tag
 
 from ..errors import AuthenticationRequiredError, UnexpectedResponseError
 from ..models import (
+    CATEGORY_RUBRIQUES,
     Category,
     Challenge,
     FormField,
@@ -17,7 +18,7 @@ from ..models import (
     WebForm,
     WebPage,
 )
-from ..urls import platform_url
+from ..transport import platform_url, sanitize_url
 from .api import score_to_difficulty
 
 _ALREADY_SOLVED_MESSAGES = (
@@ -41,7 +42,7 @@ def links(soup: BeautifulSoup | Tag, url: str) -> tuple[Resource, ...]:
     """Resolve ordinary links relative to the page, keeping their visible labels."""
     result = []
     for anchor in soup.select("a[href]"):
-        target = urljoin(url, attribute(anchor, "href"))
+        target = sanitize_url(urljoin(url, attribute(anchor, "href").strip()))
         if urlsplit(target).scheme in {"https", "http"}:
             result.append(Resource(target, anchor.get_text(" ", strip=True)))
     return tuple(dict.fromkeys(result))
@@ -139,7 +140,76 @@ def _page_solved(soup: BeautifulSoup) -> bool:
     return bool(container and container.select_one(".reponse_formulaire_ok, .success"))
 
 
-def challenge_page(document: WebPage) -> Challenge:
+def _parse_id_and_score(score: Tag) -> tuple[int, int]:
+    """Parse challenge id and point score from header elements."""
+    identity = re.search(r"challenge-score-(\d+)", str(score.get("class", "")))
+    points = re.search(r"\d+", score.get_text())
+    if identity is None or points is None:
+        raise UnexpectedResponseError("Missing challenge identifier or score.")
+    return int(identity[1]), int(points[0])
+
+
+def _page_authors_and_date(tile: Tag) -> tuple[tuple[str, ...], str | None]:
+    """Extract authors and publication date from the challenge tile."""
+    auth_header = tile.find(
+        lambda t: (
+            t.name in ["h4", "h5", "strong"]
+            and any(k in t.get_text(strip=True).lower() for k in ("auteur", "author"))
+        )
+    )
+    if not auth_header or not auth_header.parent:
+        return (), None
+    parent = auth_header.parent
+    authors = tuple(
+        a.get_text(strip=True)
+        for a in parent.select("a[href]")
+        if not attribute(a, "href").startswith("?") and "tri_co" not in attribute(a, "href")
+    )
+    match = re.search(r"(\d{1,2}\s+[a-zA-ZÀ-ÿ]+\s+\d{4})", parent.get_text())
+    return authors, match[1].replace("\xa0", " ") if match else None
+
+
+def _page_validations_count(tile: Tag) -> int | None:
+    """Extract the total solve count from the validation popup link."""
+    val_a = tile.select_one('a[href*="qui_a_valid"]')
+    if not val_a:
+        return None
+    cleaned = val_a.get_text().replace("\xa0", "").replace(" ", "")
+    match = re.search(r"(\d+)", cleaned)
+    return int(match[1]) if match else None
+
+
+def _is_start_button(resource: Resource) -> bool:
+    """Detect whether a link points to the interactive challenge instance."""
+    host = urlsplit(resource.url).hostname or ""
+    is_target = any(k in resource.label.lower() for k in ("démarrer", "start", "accéder", "access"))
+    return is_target or (host.endswith(".root-me.org") and host.startswith("challenge"))
+
+
+def _page_resources(
+    tile: Tag, base_url: str, cid: int, statement: BeautifulSoup
+) -> tuple[Resource, ...]:
+    """Collect attached resource links excluding interactive start targets."""
+    res: list[Resource] = list(links(statement, base_url))
+    res_div = tile.select_one(f".challenge-ressources-{cid}")
+    if res_div:
+        res.extend(links(res_div, base_url))
+    return tuple(dict.fromkeys(r for r in res if not _is_start_button(r)))
+
+
+def _page_statement(tile: Tag, cid: int) -> tuple[str, BeautifulSoup]:
+    """Extract statement text and html container from challenge tile."""
+    desc = tile.select_one(f".challenge-descriptif-{cid}")
+    content = desc if desc is not None else tile.select_one(".t-body")
+    if content is None:
+        raise UnexpectedResponseError("Missing challenge statement container.")
+    stmt = BeautifulSoup(str(content), "html.parser")
+    for node in stmt.select("form,script,style,.formulaire_spip,.star-rating,.note_challenge"):
+        node.decompose()
+    return stmt.get_text("\n", strip=True), stmt
+
+
+def challenge_page(document: WebPage, *, solved: bool | None = None) -> Challenge:
     """Read the observed challenge title, identifier, statement and resource links."""
     soup = BeautifulSoup(document.html, "html.parser")
     title, score = (
@@ -150,40 +220,31 @@ def challenge_page(document: WebPage) -> Challenge:
         if any(f.name == "login" for f in document.forms):
             raise AuthenticationRequiredError("Challenge page requires a web session.")
         raise UnexpectedResponseError("Unsupported Root-Me challenge page.")
-    identity = re.search(r"challenge-score-(\d+)", str(score.get("class", "")))
-    points = re.search(r"\d+", score.get_text())
-    if identity is None or points is None:
-        raise UnexpectedResponseError("Missing challenge identifier or score.")
-    cid, score_val = int(identity[1]), int(points[0])
-    statement = _statement(title)
-    authors = tuple(
-        a.get_text(strip=True) for a in soup.select('a[href*="auteur"], a[href*="author"]')
-    )
+    tile = title.find_parent(class_="tile")
+    if tile is None:
+        raise UnexpectedResponseError("Missing challenge tile.")
+    cid, score_val = _parse_id_and_score(score)
+    stmt_text, stmt_soup = _page_statement(tile, cid)
+    authors, date = _page_authors_and_date(tile)
+    base_url = _base(soup, document.url)
+    is_solved = solved if solved is not None else _page_solved(soup)
+    category = _page_category(document.url)
     return Challenge(
         id=cid,
         title=title.get_text(" ", strip=True),
-        category=_page_category(document.url),
+        category=category,
         difficulty=score_to_difficulty(score_val),
         score=score_val,
-        solved=_page_solved(soup),
+        solved=is_solved,
+        category_id=CATEGORY_RUBRIQUES.get(category) if category else None,
         url=document.url,
-        statement_html=str(statement),
-        statement=statement.get_text("\n", strip=True),
+        statement_html=str(stmt_soup),
+        statement=stmt_text,
         authors=authors,
-        resources=links(statement, _base(soup, document.url)),
+        date=date,
+        validations_count=_page_validations_count(tile),
+        resources=_page_resources(tile, base_url, cid, stmt_soup),
     )
-
-
-def _statement(title: Tag) -> BeautifulSoup:
-    """Keep the challenge body while removing forms and executable markup."""
-    tile = title.find_parent(class_="tile")
-    content = tile.select_one(".t-body") if tile else None
-    if content is None:
-        raise UnexpectedResponseError("Missing challenge statement container.")
-    statement = BeautifulSoup(str(content), "html.parser")
-    for node in statement.select("form,script,style,.formulaire_spip,.star-rating,.note_challenge"):
-        node.decompose()
-    return statement
 
 
 def form_values(form: WebForm, updates: Mapping[str, str]) -> dict[str, str]:

@@ -11,14 +11,14 @@ from scripts.check_artifact_contents import contents, validate
 from scripts.verify_pypi import published_metadata, verify_hashes
 
 
-def wheel(tmp_path: Path, *, extra: str | None = None, version: str = "0.3.0") -> Path:
-    artifact = tmp_path / "rootme_sdk-0.3.0-py3-none-any.whl"
+def wheel(tmp_path: Path, *, extra: str | None = None, version: str = "0.4.0") -> Path:
+    artifact = tmp_path / "rootme_sdk-0.4.0-py3-none-any.whl"
     with ZipFile(artifact, "w") as archive:
         archive.writestr("rootme_sdk/__init__.py", "")
         archive.writestr("rootme_sdk/py.typed", "")
-        archive.writestr("rootme_sdk-0.3.0.dist-info/licenses/LICENSE", "MIT")
+        archive.writestr("rootme_sdk-0.4.0.dist-info/licenses/LICENSE", "MIT")
         archive.writestr(
-            "rootme_sdk-0.3.0.dist-info/METADATA",
+            "rootme_sdk-0.4.0.dist-info/METADATA",
             f"Name: rootme-sdk\nVersion: {version}\n"
             "License-Expression: MIT\nLicense-File: LICENSE\n",
         )
@@ -30,9 +30,9 @@ def wheel(tmp_path: Path, *, extra: str | None = None, version: str = "0.3.0") -
 
 
 def test_valid_wheel_and_version_guard(tmp_path: Path) -> None:
-    validate(wheel(tmp_path), "0.3.0")
+    validate(wheel(tmp_path), "0.4.0")
     with pytest.raises(ValueError, match="version"):
-        validate(wheel(tmp_path, version="0.2.0"), "0.3.0")
+        validate(wheel(tmp_path, version="0.2.0"), "0.4.0")
 
 
 @pytest.mark.parametrize(
@@ -49,7 +49,7 @@ def test_valid_wheel_and_version_guard(tmp_path: Path) -> None:
 )
 def test_reject_private_generated_and_unsafe_paths(tmp_path: Path, name: str) -> None:
     with pytest.raises(ValueError):
-        validate(wheel(tmp_path, extra=name), "0.3.0")
+        validate(wheel(tmp_path, extra=name), "0.4.0")
 
 
 def test_source_archive_and_symlink_guard(tmp_path: Path) -> None:
@@ -80,11 +80,11 @@ def test_source_archive_keeps_public_vcs_ignore_file(tmp_path: Path) -> None:
         member = tarfile.TarInfo("package/.gitignore")
         member.size = 10
         source_archive.addfile(member, io.BytesIO(b".secrets/\n"))
-    validate(source, "0.3.0")
+    validate(source, "0.4.0")
 
 
 def test_pypi_hashes_must_match_both_build_artifacts(tmp_path: Path) -> None:
-    artifacts = [wheel(tmp_path), tmp_path / "rootme_sdk-0.3.0.tar.gz"]
+    artifacts = [wheel(tmp_path), tmp_path / "rootme_sdk-0.4.0.tar.gz"]
     artifacts[1].write_bytes(b"synthetic source distribution")
     urls = [
         {
@@ -130,7 +130,7 @@ def test_wait_for_index_visibility_without_republishing(monkeypatch: pytest.Monk
     delays = []
     monkeypatch.setattr("scripts.verify_pypi.httpx.get", lambda *args, **kwargs: next(responses))
     monkeypatch.setattr("scripts.verify_pypi.time.sleep", delays.append)
-    assert published_metadata("0.3.0") == {"urls": []}
+    assert published_metadata("0.4.0") == {"urls": []}
     assert delays == [5]
 
 
@@ -142,4 +142,4 @@ def test_index_errors_are_not_hidden(monkeypatch: pytest.MonkeyPatch) -> None:
         ),
     )
     with pytest.raises(httpx.HTTPStatusError):
-        published_metadata("0.3.0")
+        published_metadata("0.4.0")

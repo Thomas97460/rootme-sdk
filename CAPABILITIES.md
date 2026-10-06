@@ -8,8 +8,8 @@ reads reuse the login cookie. Website JavaScript gates can affect public reads.
 | `RootMeClient(login, password)` / `RootMeClient(credentials_file=...)` | Connect from credentials and manage browser/session internally | Existing account | Both modes observed without human input, including preferences and challenge reads |
 | `login` | Connect/reconnect an existing client, with automatic JS assistance | Existing account | Same managed authentication flow |
 | `logout` | Server logout and local credential erasure | Session for server logout | Route observed; behavior tested offline |
-| `get_challenge(id)` | Metadata and additional API fields | Login session | Detail response observed |
-| `get_challenge(url)`, `read_challenge` | Full statement, resources and access instructions | Website access | Challenge pages observed |
+| `get_challenge(id)` | Complete website details through the API-provided URL | Login session and website access | API links and challenge pages observed |
+| `get_challenge(url)`, `read_challenge` | Full statement, named resource URLs and access instructions | Website access | Challenge pages observed |
 | `list_challenges`, `iter_challenges` | Filters and pagination | Login session | Documented API; response shapes observed |
 | `list_categories` | Catalogue categories | Website access | 11 categories observed |
 | `get_user` | Account profile, score and available progression data | Login session | Authenticated profile response observed; validations hold solved entries |
@@ -21,20 +21,44 @@ reads reuse the login cookie. Website JavaScript gates can affect public reads.
 ## Limits
 
 Password authentication uses only graphical Chrome/Chromium. The SDK finds or
-prepares Chromium automatically, submits credentials once, waits for native login
+prepares Chromium automatically, waits for native login
 completion and verifies the account preferences page before returning a connected
 client. A graphical display and Chromium's system dependencies are prerequisites;
 missing Linux `DISPLAY` is rejected before browser startup. Headless and HTTP-only
 login are not supported. Platform verification, network and rate-limit failures
-are explicit errors; rejected credentials are never silently resubmitted.
+are explicit errors. Credentials rejected on the login page are not resubmitted.
 
-Authentication is still at alpha maturity. Both credential sources produced
-successful account/API/challenge reads, but some fresh sessions still returned a
-login page during account verification after positive login feedback. The cause
-is unresolved. Further live checks stopped after an HTTP 429 response. Automated
-unit and packaging checks cannot establish reliable live platform authentication.
-No guarantee of unattended login success is made. Account preference mutations
-also lack live validation; use deliberate, minimal updates.
+Authentication is still at alpha maturity. Manual checks reproduced intermittent
+account-verification rejection on 2026-10-05. Native login could return positive
+feedback, redirect to the news page and provide an account session cookie before
+the preferences check failed. These observations do not establish a server-side
+cause or demonstrate that credentials were rejected. A failed preferences check
+was also followed by an API HTTP 401 using the same cookie: that session was not
+accepted by either interface.
+
+Anonymous browser inspection confirmed that changing the login field starts an AJAX
+identity lookup. Authentication now blurs that field explicitly and waits for the
+lookup to match the supplied login before entering the password. Redirect detection
+parses query parameters instead of assuming their order. Form readiness and identity
+lookup waits exclude unrelated AJAX and full-page asset loading; each form readiness
+or field-entry wait is capped at 30 seconds. Verification waits for the hidden preferences
+control to be attached, then refreshes cookies; the previous visibility wait could
+only time out and left an earlier cookie snapshot. When a session is present, a
+missing account form triggers one more preferences GET, never another login POST.
+After a native login redirect, an explicitly rejected session is cleared and login
+is attempted once more. Persistent denial still raises an authentication error;
+missing sessions, credentials rejected on the login page, human verification,
+network errors and rate limits do not trigger another login. Offline regressions
+cover these cases, including unusable fields and indefinitely active background AJAX.
+
+The final manual check on 2026-10-05 used three fresh credential-based clients.
+All three verified account access and read challenge details with six named resource
+URLs. Two connected on their first native attempt; the third recovered through the
+single session-renewal attempt. This small sample does not establish a success rate
+or explain why Root-Me rejected the first session.
+
+Automated unit and packaging checks cannot establish reliable live platform
+authentication. Account preference mutations also lack live validation.
 
 Submission feedback is read only inside the challenge validation form, using
 observed success/error and SPIP feedback classes. Explicit English/French
@@ -46,5 +70,5 @@ Preference mutations have not been manually exercised. The SDK exposes account
 and challenge operations only; generic forms are private implementation details.
 
 Source: [official API documentation](https://api.www.root-me.org/?lang=en) and
-manual observations on 2026-10-04. No real answer, credential or account snapshot
+manual observations on 2026-10-04 and 2026-10-05. No real answer, credential or account snapshot
 is committed in fixtures.

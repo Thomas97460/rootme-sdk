@@ -27,7 +27,19 @@ The constructor's optional keyword arguments are `timeout=30` (HTTP seconds),
 `read_retries=1`, `max_retry_delay=5`, and `transport` (an HTTPX transport, useful
 for offline tests). Managed browser login has a separate 180-second timeout;
 `login(..., timeout=180)` can change it. Read retries are bounded and respect
-eligible waiting intervals; authentication and writes are never replayed.
+eligible waiting intervals; ambiguous authentication attempts and writes are never replayed.
+During login, the SDK waits only for the form's initialization and the username's
+identity lookup, without waiting for unrelated page assets or background AJAX.
+Form readiness and field entry waits are capped at 30 seconds (or the shorter
+browser timeout), with separate errors for readiness, identity and field entry.
+It checks account access through the hidden preferences form and captures
+the final cookies. If a session is present but that form is missing, it retries
+only the preferences GET once; each form wait is capped at 15 seconds (or the
+shorter browser timeout). Network errors and rate limits propagate immediately.
+If native login redirected away from the form but the resulting session is
+explicitly rejected, the SDK removes only that session cookie and tries login
+once more. A persistent rejection, missing session, credentials rejected on the
+login page, human verification or an ambiguous network error stops authentication.
 
 Advanced session reuse accepts `session=Session.load(path)` or
 `spip_session="..."` instead of login credentials. These contain account secrets,
@@ -59,6 +71,14 @@ API IDs must be positive integers. `Challenge` exposes `id`, `title`, `score`,
 API fields absent from a response remain `None`; `.data` preserves extra JSON.
 Resources contain a `url` and `label`, including links to services and documentation;
 choose downloadable attachments rather than passing arbitrary service links.
+Both fields appear in the resource representation. Relative links are resolved
+against the page's HTML base URL, preserving query parameters and fragments.
+
+```python
+challenge = client.get_challenge(5)
+for resource in challenge.resources:
+    print(resource.label, resource.url)
+```
 
 `WebPage` contains `url`, `title`, `text`, `html`, `links` and `forms`.
 Each `WebForm` exposes its name and typed `FormField` controls. Account updates

@@ -60,11 +60,69 @@ def test_observed_challenge_structure(fixture_html: Path) -> None:
     document = web.page((fixture_html / "challenge.html").read_text(encoding="utf-8"), URL)
     result = web.challenge_page(document)
     assert result.id == 7 and result.score == 10 and result.title == "Example challenge"
-    assert "Read the supplied file" in result.statement
+    # Uses .challenge-descriptif-7 path (lines 203-204)
+    assert "Read the supplied file carefully" in result.statement
     assert "synthetic-token" not in result.statement_html
     assert "throw new Error" not in result.statement_html
+    # Statement links first (descriptif div), then resources div; start button excluded
     assert result.resources[0].url == "https://www.root-me.org/files/example.zip"
+    assert any(r.url == "https://www.root-me.org/ressources/extra.pdf" for r in result.resources)
+    assert not any("challenge01.root-me.org" in r.url for r in result.resources)
+    # Authors and date (lines 160-167)
+    assert result.authors == ("testauthor",)
+    assert result.date == "17 janvier 2006"
+    # Validations count (lines 175-177)
+    assert result.validations_count == 12345
     assert document.forms[0].name == "validation_challenge"
+
+
+def test_challenge_page_authors_and_date_no_header() -> None:
+    html = (
+        '<div class="tile"><h1 class="challenge-titre-7">X</h1>'
+        '<h2 class="challenge-score-7">10</h2>'
+        '<div class="t-body">Body'
+        '<form method="post" action="/en/Challenges/Example/Test#validation_challenge">'
+        '<input type="hidden" name="formulaire_action" value="validation_challenge">'
+        "</form></div></div>"
+    )
+    result = web.challenge_page(web.page(html, URL))
+    # No author header → empty authors, None date, None validations_count
+    assert result.authors == ()
+    assert result.date is None
+    assert result.validations_count is None
+    # The .t-body path must strip the embedded form (line 210 node.decompose())
+    assert "formulaire_action" not in result.statement
+
+
+def test_challenge_resources_keep_names_and_exclude_start_targets() -> None:
+    html = (
+        '<head><base href="https://www.root-me.org/"></head><div class="tile">'
+        '<h1 class="challenge-titre-7">Example</h1><h2 class="challenge-score-7">10</h2>'
+        '<div class="challenge-descriptif-7"><p>Statement</p>'
+        "<script>private script</script><style>private style</style>"
+        '<form><input name="private"></form>'
+        '<a href="files/archive.zip">Archive</a></div>'
+        '<div class="challenge-ressources-7">'
+        '<a href="files/archive.zip">Archive</a>'
+        '<a href="https://example.org/guide?q=1&amp;lang=en#chapter">Guide</a>'
+        '<a href="https://repository.root-me.org/Programmation/'
+        'XML - HTML/FR - HTML essentiel.pdf">HTML essentiel</a>'
+        '<a href="mailto:example@example.org">Email</a>'
+        '<a href="javascript:void(0)">Access</a></div>'
+        '<a href="https://challenge01.root-me.org/start">Start the challenge</a>'
+        '<a href="https://notchallenge.example.org/">Other navigation</a></div>'
+    )
+    result = web.challenge_page(web.page(html, URL))
+    assert [(resource.label, resource.url) for resource in result.resources] == [
+        ("Archive", "https://www.root-me.org/files/archive.zip"),
+        ("Guide", "https://example.org/guide?q=1&lang=en#chapter"),
+        (
+            "HTML essentiel",
+            "https://repository.root-me.org/Programmation/XML%20-%20HTML/FR%20-%20HTML%20essentiel.pdf",
+        ),
+    ]
+    assert result.statement == "Statement\nArchive"
+    assert "private" not in result.statement_html
 
 
 def test_preferences_successful_controls_and_csrf(fixture_html: Path) -> None:
@@ -142,6 +200,15 @@ def test_unexpected_attribute_type() -> None:
             (
                 '<div class="tile"><h1 class="challenge-titre-7">X</h1><h2 class="chall'
                 'enge-score-7">10</h2></div>'
+            ),
+            UnexpectedResponseError,
+        ),
+        (
+            # Reject a score class without a challenge identifier.
+            (
+                '<div class="tile"><h1 class="challenge-titre-7">X</h1>'
+                '<h2 class="challenge-score-">10</h2>'
+                '<div class="t-body">Body</div></div>'
             ),
             UnexpectedResponseError,
         ),

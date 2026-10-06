@@ -207,3 +207,27 @@ def test_download_redirect_limit_and_browser_transport() -> None:
     assert boundary.download(WEB) == b"file"
     boundary.close()
     browser.close.assert_called_once()
+
+
+def test_download_url_sanitization_and_redirect_spaces() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/initial":
+            return httpx.Response(
+                302,
+                headers={"location": "https://repository.root-me.org/file with spaces.pdf"},
+            )
+        return httpx.Response(200, content=b"content")
+
+    boundary = Transport(Session(), transport=httpx.MockTransport(handler))
+    content = boundary.download("https://repository.root-me.org/initial")
+    assert content == b"content"
+    assert seen[0].url.path == "/initial"
+    assert str(seen[1].url) == "https://repository.root-me.org/file%20with%20spaces.pdf"
+
+    content_direct = boundary.download("https://repository.root-me.org/direct spaces.pdf")
+    assert content_direct == b"content"
+    assert str(seen[2].url) == "https://repository.root-me.org/direct%20spaces.pdf"
+    boundary.close()
