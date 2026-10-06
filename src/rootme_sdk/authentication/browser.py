@@ -39,6 +39,7 @@ _FETCH_SCRIPT = """async ({url, method, body, contentType, timeout}) => {
               return {status: r.status, body: btoa(text),
                 retryAfter: r.headers.get('Retry-After') || ''};
             }"""
+_STEP_TIMEOUT_MS = 10_000
 
 
 class BrowserSession:
@@ -146,7 +147,7 @@ class BrowserSession:
         self._fill_login(username, password)
         with self.page.expect_response(_login_response, timeout=self.timeout * 1000) as pending:
             self.page.locator('#formulaire_login input[type="submit"]').click(
-                timeout=min(self.timeout * 1000, 30000)
+                timeout=self._step_timeout()
             )
         self._complete_login(pending.value)
         self._confirm_login()
@@ -156,7 +157,7 @@ class BrowserSession:
         """Fill usable login fields with a bounded wait and secret-free failure messages."""
         from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-        timeout = min(self.timeout * 1000, 30000)
+        timeout = self._step_timeout()
         try:
             login = self.page.locator('#formulaire_login input[name="var_login"]')
             login.fill(username, timeout=timeout)
@@ -191,9 +192,7 @@ class BrowserSession:
             )
         else:
             self._await_login_navigation()
-        self._login_redirected = "login" not in parse_qs(urlsplit(self.page.url).query).get(
-            "page", []
-        )
+        self._login_redirected = not _login_page(self.page.url)
 
     def _await_login_navigation(self) -> None:
         """Wait for JavaScript-driven login redirects away from the login page."""
@@ -201,9 +200,9 @@ class BrowserSession:
 
         with suppress(PlaywrightTimeoutError):
             self.page.wait_for_url(
-                lambda u: "login" not in parse_qs(urlsplit(u).query).get("page", []),
+                lambda u: not _login_page(u),
                 wait_until="domcontentloaded",
-                timeout=min(self.timeout * 1000, 15000),
+                timeout=self._step_timeout(),
             )
 
     def _wait_login_form(self) -> None:
@@ -215,7 +214,7 @@ class BrowserSession:
                 "window.jQuery && jQuery.isReady && window.login_info && "
                 "document.querySelector('#formulaire_login input[name=var_login]') && "
                 "document.querySelector('#formulaire_login input[name=password]')",
-                timeout=min(self.timeout * 1000, 30000),
+                timeout=self._step_timeout(),
             )
         except PlaywrightTimeoutError:
             raise NetworkError("The login form did not become ready within the timeout.") from None
@@ -229,7 +228,7 @@ class BrowserSession:
                 "username => window.login_info && !login_info.informe_auteur_en_cours && "
                 "login_info.login === username",
                 arg=username,
-                timeout=min(self.timeout * 1000, 30000),
+                timeout=self._step_timeout(),
             )
         except PlaywrightTimeoutError:
             raise NetworkError(
@@ -246,23 +245,33 @@ class BrowserSession:
         raise AuthenticationRequiredError("Login did not grant account access.", reason="rejected")
 
     def _account_access(self) -> bool:
-        """Read preferences and refresh cookies after awaiting its hidden account control."""
+        """Read preferences and refresh cookies after awaiting its hidden account control.
+
+        The website redirects rejected sessions to its login page, where the account
+        control can never appear, so that outcome is reported without waiting for it.
+        """
         from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
         check_response(
             self._get(httpx.Request("GET", f"https://{WEB_HOST}/?page=preferences&lang=en"))
         )
+        if _login_page(self.page.url):
+            return False
         with suppress(PlaywrightTimeoutError):
             self.page.wait_for_selector(
                 'input[name="formulaire_action"][value="modifier_auteur"]',
                 state="attached",
-                timeout=min(self.timeout * 1000, 15000),
+                timeout=self._step_timeout(),
             )
         self._sync()
         editable = self.page.locator(
             'input[name="formulaire_action"][value="modifier_auteur"]'
         ).count()
         return bool(self.session.spip_session and editable)
+
+    def _step_timeout(self) -> float:
+        """Bound one interactive login step in milliseconds, below the overall timeout."""
+        return min(self.timeout * 1000, _STEP_TIMEOUT_MS)
 
     def _verification(self) -> None:
         """Wait for the site's own JavaScript or human verification to finish."""
@@ -370,6 +379,11 @@ def _require_display() -> None:
     """Reject unsupported Linux environments before starting or downloading a browser."""
     if sys.platform == "linux" and not os.environ.get("DISPLAY"):
         raise BrowserUnavailableError("Headed Chromium requires an X11 display (DISPLAY) on Linux.")
+
+
+def _login_page(url: str) -> bool:
+    """Identify the website login page, including its redirects for rejected sessions."""
+    return "login" in parse_qs(urlsplit(url).query).get("page", [])
 
 
 def _login_response(response: BrowserResponse) -> bool:
