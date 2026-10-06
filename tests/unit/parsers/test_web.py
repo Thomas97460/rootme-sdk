@@ -67,6 +67,7 @@ def test_observed_challenge_structure(fixture_html: Path) -> None:
     # Static statement attachments are files; documentation stays in resources
     assert [f.url for f in result.files] == ["https://static.root-me.org/example/ch7.zip"]
     assert [r.url for r in result.resources] == ["https://www.root-me.org/ressources/extra.pdf"]
+    assert result.instance_url == "https://challenge01.root-me.org/example/"
     # Authors and date (lines 160-167)
     assert result.authors == ("testauthor",)
     assert result.date == "17 janvier 2006"
@@ -122,6 +123,7 @@ def test_challenge_resources_keep_names_and_exclude_start_targets() -> None:
     ]
     assert result.statement == "Statement\nArchive"
     assert "private" not in result.statement_html
+    assert result.instance_url == "https://challenge01.root-me.org/start"
 
 
 def test_challenge_files_are_static_attachments_separate_from_resources() -> None:
@@ -257,3 +259,25 @@ def test_submission_feedback_and_redaction(css: str, status: SubmissionStatus) -
         web.submission_result(web.page("<p>HTTP 200</p>", URL), "synthetic-answer").status
         == SubmissionStatus.INDETERMINATE
     )
+
+
+def test_instance_url_ignores_statement_links_and_ssh_targets() -> None:
+    html = (
+        '<div class="tile"><h1 class="challenge-titre-7">Example</h1>'
+        '<h2 class="challenge-score-7">10</h2>'
+        '<div class="challenge-descriptif-7"><p>Statement</p>'
+        '<a href="ssh://user:pass@challenge02.root-me.org:2222">ssh</a>'
+        '<a href="https://challenge01.root-me.org/inside">Inside statement</a></div></div>'
+    )
+    assert web.challenge_page(web.page(html, URL)).instance_url is None
+
+
+def test_instance_url_without_description_container() -> None:
+    html = (
+        '<div class="tile"><h1 class="challenge-titre-7">Example</h1>'
+        '<div class="t-body"><h2 class="challenge-score-7">10</h2><p>Statement</p>'
+        '<a href="http://challenge01.root-me.org/web-serveur/ch2/">Start the challenge</a>'
+        "</div></div>"
+    )
+    result = web.challenge_page(web.page(html, URL))
+    assert result.instance_url == "http://challenge01.root-me.org/web-serveur/ch2/"

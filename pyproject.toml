@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rootme-sdk"
-version = "0.5.1"
+version = "0.5.2"
 
 description = "Unofficial typed Python SDK for Root-Me accounts and challenges"
 readme = "README.md"

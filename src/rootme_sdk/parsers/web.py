@@ -179,11 +179,30 @@ def _page_validations_count(tile: Tag) -> int | None:
     return int(match[1]) if match else None
 
 
+def _is_challenge_host(resource: Resource) -> bool:
+    """Detect whether a link targets Root-Me's hosted challenge servers."""
+    host = urlsplit(resource.url).hostname or ""
+    return host.endswith(".root-me.org") and host.startswith("challenge")
+
+
 def _is_start_button(resource: Resource) -> bool:
     """Detect whether a link points to the interactive challenge instance."""
-    host = urlsplit(resource.url).hostname or ""
     is_target = any(k in resource.label.lower() for k in ("démarrer", "start", "accéder", "access"))
-    return is_target or (host.endswith(".root-me.org") and host.startswith("challenge"))
+    return is_target or _is_challenge_host(resource)
+
+
+def _page_instance_url(tile: Tag, base_url: str, cid: int) -> str | None:
+    """Return the hosted instance behind the start button, which sits outside the description."""
+    description = tile.select_one(f".challenge-descriptif-{cid}")
+    described = set(links(description, base_url)) if description else set()
+    return next(
+        (
+            resource.url
+            for resource in links(tile, base_url)
+            if _is_challenge_host(resource) and resource not in described
+        ),
+        None,
+    )
 
 
 def _page_links(
@@ -248,6 +267,7 @@ def challenge_page(document: WebPage, *, solved: bool | None = None) -> Challeng
         validations_count=_page_validations_count(tile),
         resources=resources,
         files=files,
+        instance_url=_page_instance_url(tile, base_url, cid),
     )
 
 

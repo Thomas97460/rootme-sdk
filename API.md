@@ -69,7 +69,8 @@ Ordinary users need only credentials. `client.session.save(path)` is opt-in.
 
 Language arguments on website methods are keyword-only and accept `en` or `fr`.
 API IDs must be positive integers. `Challenge` exposes `id`, `title`, `score`,
-`category_id`, `url`, `statement`, `statement_html`, `files`, `resources` and `data`.
+`category_id`, `url`, `statement`, `statement_html`, `files`, `resources`, `data` and
+`instance_url`.
 API fields absent from a response remain `None`; `.data` preserves extra JSON.
 
 `files` and `resources` are both tuples of `Resource` (`url`, `label`, `filename`)
@@ -77,7 +78,8 @@ but hold different things. `files` is the challenge's own material: links served
 `static.root-me.org`, usually the statement's *Download the challenge* button.
 `resources` holds every other link: documentation and references Root-Me associates
 with the challenge, and other statement links. Start buttons for hosted instances
-appear in neither. Relative links are resolved against the page's HTML base URL,
+appear in neither: their target is `instance_url` (`None` without a web instance, e.g.
+SSH challenges, whose connection details are in the statement). Relative links are resolved against the page's HTML base URL,
 preserving query parameters and fragments. `Resource.filename` is the decoded last
 URL path segment and raises `ValueError` when it cannot safely name a local file.
 
