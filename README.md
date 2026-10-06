@@ -59,88 +59,66 @@ Playwright is included. On first use, it automatically uses your local Chrome/Ch
 
 ## Quickstart
 
-Every example runs inside a connected client. Login opens a graphical Chromium window
-and fills the form automatically; you only supply credentials.
+Copy a snippet, replace the credentials and run it. Login opens a Chromium window
+and fills the form automatically.
+
+### 1. Find a challenge by its name and read its statement
 
 ```python
 from rootme_sdk import RootMeClient
 
 with RootMeClient("your-username", "your-password") as client:
-    ...
+    summary = next(client.search_challenges(query="ELF x86 - 0 protection"))
+    challenge = client.get_challenge(summary.id)
+    print(challenge.id, challenge.title)  # 41 ELF x86 - 0 protection
+    print(challenge.statement)
 ```
 
-Or `RootMeClient(credentials_file=".secrets/credentials.json")` with
-`{"login": "your-username", "password": "your-password"}`.
-
-### 1. Find a challenge by its name
+### 2. Download the challenge files
 
 ```python
-summary = next(client.search_challenges(query="ELF x86 - 0 protection"))
-print(summary.id, summary.title)  # 41 ELF x86 - 0 protection
+from rootme_sdk import RootMeClient
+
+with RootMeClient("your-username", "your-password") as client:
+    print(client.download_files(41))  # (PosixPath('ch1.zip'),)
 ```
 
-### 2. Read its statement
+### 3. Submit a flag
 
 ```python
-challenge = client.get_challenge(summary.id)
-print(challenge.statement)
+from rootme_sdk import RootMeClient
+
+with RootMeClient("your-username", "your-password") as client:
+    result = client.submit_flag(41, "your-flag")
+    print(result.status, result.message)  # SubmissionStatus.ACCEPTED ...
 ```
 
-### 3. Download the challenge files
-
-A challenge page exposes two different kinds of links:
-
-- `challenge.files`: the challenge's own material behind the statement's
-  *Download the challenge* button (binary, archive, capture, image…).
-- `challenge.resources`: documentation and references Root-Me associates with
-  the challenge (PDFs, articles, videos).
+### 4. Browse challenges with filters
 
 ```python
-paths = client.download_files(challenge, "challenges/41")
-print(paths)  # (PosixPath('challenges/41/ch1.zip'),)
+from rootme_sdk import Category, Difficulty, RootMeClient
 
-for resource in challenge.resources:
-    print(resource.label, resource.url)  # read or download them only if useful
+with RootMeClient("your-username", "your-password") as client:
+    for item in client.search_challenges(
+        category=Category.CRACKING, difficulty=Difficulty.EASY, limit=20
+    ):
+        print(f"[{item.id}] {item.title} ({item.score} pts)")
 ```
 
-To fetch a single file or resource, use `client.download(resource, "elf.pdf")`.
-
-### 4. Submit a flag
-
-```python
-from rootme_sdk import SubmissionStatus
-
-result = client.submit_flag(41, "your-flag")
-if result.status == SubmissionStatus.ACCEPTED:
-    print("Flag validated!")
-else:
-    print(result.status, result.message)
-```
-
-### 5. Browse challenges with filters
-
-```python
-from rootme_sdk import Category, Difficulty
-
-for item in client.search_challenges(
-    category=Category.CRACKING, difficulty=Difficulty.EASY, limit=20
-):
-    print(f"[{item.id}] {item.title} ({item.score} pts)")
-```
-
-`score=` targets an exact point value; `query=` and the filters can be combined.
-
-### Reuse a session
+### 5. Reuse a session
 
 ```python
 from rootme_sdk import RootMeClient, Session
 
 with RootMeClient("your-username", "your-password") as client:
-    client.session.save(".secrets/session.json")
+    client.session.save("session.json")
 
-with RootMeClient(session=Session.load(".secrets/session.json")) as client:
-    challenge = client.get_challenge(41)
+with RootMeClient(session=Session.load("session.json")) as client:
+    print(client.get_challenge(41).title)
 ```
+
+Credentials can also come from a JSON file `{"login": "...", "password": "..."}`:
+`RootMeClient(credentials_file="credentials.json")`.
 
 ## Important Notes
 

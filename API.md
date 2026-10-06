@@ -65,7 +65,7 @@ Ordinary users need only credentials. `client.session.save(path)` is opt-in.
 | `iter_challenges(title=None, subtitle=None, language=None, score=None, author_ids=(), **extra_filters)` | `Iterator[Challenge]`; lazy pagination across all pages using raw filters |
 | `list_categories(language="en")` | `tuple[Category, ...]`; all supported category enums |
 | `download(resource_or_https_url, destination=None)` | `bytes`; optionally write to the supplied file path, or into an existing directory under the URL's file name; external hosts receive no account cookies |
-| `download_files(challenge, directory)` | `tuple[Path, ...]`; write every `challenge.files` entry into `directory` (created if missing) under its URL file name, overwriting existing files |
+| `download_files(challenge_or_id_or_url, directory=".")` | `tuple[Path, ...]`; write every challenge file into `directory` (created if missing) under its URL file name, overwriting existing files |
 
 Language arguments on website methods are keyword-only and accept `en` or `fr`.
 API IDs must be positive integers. `Challenge` exposes `id`, `title`, `score`,
@@ -83,7 +83,7 @@ URL path segment and raises `ValueError` when it cannot safely name a local file
 
 ```python
 challenge = client.get_challenge(41)
-client.download_files(challenge, "challenges/41")  # challenges/41/ch1.zip
+client.download_files(41)  # ch1.zip in the current directory
 for resource in challenge.resources:
     print(resource.label, resource.url)
 ```
