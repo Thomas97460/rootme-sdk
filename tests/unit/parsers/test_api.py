@@ -65,6 +65,8 @@ def test_record_models_preserve_extra_data() -> None:
     assert result.statement == "Read\nthis" and result.data["difficulte"] == "1"
     assert user({"nom": "Example", "score": "10", "position": 3}, identifier=4).id == 4
     assert user({"nom": "Example", "id_auteur": "8"}).id == 8
+    unranked = user({"nom": "Example", "score": "0", "position": ""})
+    assert unranked.position is None and unranked.rank is None
     assert integer({}, "absent") is None and text({}, "absent", default="") == ""
 
 
