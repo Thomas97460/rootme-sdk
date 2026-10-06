@@ -2,7 +2,8 @@
 
 The repository is public and `PUBLISH_PYPI=false`. No publication or
 visibility change follows from merging the preparation work. The current package
-version is 0.3.0; its tag has not been published.
+version is 0.4.0; its tag has not been published.
+
 
 ## Prepared in the repository
 
@@ -57,7 +58,8 @@ deferred; do not run repeated logins merely to obtain one successful result.
    enabled. No password/token is needed in GitHub for this OIDC publisher.
 4. Adjust the README install status through a normal PR. Wait for green CI and
    security checks on its exact main commit. Obtain explicit tag approval, then
-   create/push `v0.3.0` on that commit, provided the version remains untagged.
+   create/push `v0.4.0` on that commit, provided the version remains untagged.
+
 5. Watch the release workflow. It attaches wheel/source assets on GitHub and, when
    enabled, publishes to PyPI. It checks PyPI's exact version file hashes against
    the build and installs that version into a clean environment outside the repo.

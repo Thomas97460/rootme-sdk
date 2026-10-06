@@ -1,13 +1,33 @@
 <!doctype html><html><head><title>Example challenge</title></head><body>
-<div class="tile"><h1 class="crayon challenge-titre-42">Example challenge</h1>
-<div class="t-body"><h2 class="crayon challenge-score-7">10 Points</h2>
-<p>Read the supplied file.</p><a href="/files/example.zip">File</a>
-<a href="https://challenge01.root-me.org/example/">Start the challenge</a>
-<script>throw new Error('excluded')</script>
-<div id="formulaire_validation_challenge" class="formulaire_spip">
-<form method="post" action="/en/Challenges/Example/Test#validation_challenge">
-<input type="hidden" name="formulaire_action" value="validation_challenge">
-<input type="hidden" name="formulaire_action_args" value="synthetic-token">
-<input type="hidden" name="formulaire_action_sign" value="synthetic-signature">
-<input type="password" name="passe"><input type="submit" value="Send">
-</form></div></div></div></body></html>
+<div class="tile">
+  <h1 class="crayon challenge-titre-42">Example challenge</h1>
+  <div class="t-body">
+    <h2 class="crayon challenge-score-7">10 Points</h2>
+    <div class="challenge-descriptif-7">
+      <p>Read the supplied file carefully.</p>
+      <a href="/files/example.zip">File</a>
+    </div>
+    <div class="challenge-ressources-7">
+      <a href="/ressources/extra.pdf">Extra PDF</a>
+    </div>
+    <div class="author-block">
+      <h4>Auteur / Author</h4>
+      <a href="/en/Members/testauthor/">testauthor</a>
+      <a href="?tri_co=date">sort</a>
+      <a href="?invalid">skip</a>
+      17 janvier 2006
+    </div>
+    <a href="?qui_a_valid=challenge&amp;id_challenge=7">12345 Challengeurs</a>
+    <a href="https://challenge01.root-me.org/example/">Start the challenge</a>
+    <script>throw new Error('excluded')</script>
+    <div id="formulaire_validation_challenge" class="formulaire_spip">
+      <form method="post" action="/en/Challenges/Example/Test#validation_challenge">
+        <input type="hidden" name="formulaire_action" value="validation_challenge">
+        <input type="hidden" name="formulaire_action_args" value="synthetic-token">
+        <input type="hidden" name="formulaire_action_sign" value="synthetic-signature">
+        <input type="password" name="passe"><input type="submit" value="Send">
+      </form>
+    </div>
+  </div>
+</div>
+</body></html>

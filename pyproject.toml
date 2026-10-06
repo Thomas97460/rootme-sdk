@@ -4,7 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rootme-sdk"
-version = "0.3.0"
+version = "0.4.0"
+
 description = "Unofficial typed Python SDK for Root-Me accounts and challenges"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -73,7 +74,8 @@ exclude = ["tests", ".venv"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers --import-mode=importlib"
+
 
 [tool.coverage.run]
 source = ["rootme_sdk"]

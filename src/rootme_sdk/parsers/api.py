@@ -15,7 +15,7 @@ from ..models import (
     JSONValue,
     UserProfile,
 )
-from ..urls import website_url
+from ..transport import website_url
 
 
 def json_payload(content: str) -> JSONValue:
@@ -92,6 +92,10 @@ def challenge(data: JSONObject, *, identifier: int | None = None) -> Challenge:
     html = text(data, "descriptif", default="")
     rubrique_id = integer(data, "id_rubrique")
     score_val = integer(data, "score")
+    raw_authors = records(data.get("auteurs", []))
+    authors = tuple(text(a, "nom") for a in raw_authors if isinstance(a, dict) and "nom" in a)
+    validations = data.get("validations")
+    val_count = len(validations) if isinstance(validations, (list, dict)) else None
     return Challenge(
         integer(data, "id_challenge") or identifier,
         text(data, "titre"),
@@ -102,6 +106,9 @@ def challenge(data: JSONObject, *, identifier: int | None = None) -> Challenge:
         url=_challenge_link(data),
         statement_html=html,
         statement=BeautifulSoup(html, "html.parser").get_text("\n", strip=True),
+        authors=authors,
+        date=text(data, "date_publication", default="") or None,
+        validations_count=val_count,
         data=data,
     )
 

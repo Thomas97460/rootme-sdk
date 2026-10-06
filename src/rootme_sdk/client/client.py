@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 from types import TracebackType
 from typing import Self
@@ -10,9 +11,9 @@ from urllib.parse import parse_qs, urlsplit
 
 import httpx
 
-from .authentication.credentials import Credentials
-from .authentication.session import API_HOST, WEB_HOST, Session, SessionCookie
-from .errors import (
+from ..authentication.credentials import Credentials
+from ..authentication.session import API_HOST, WEB_HOST, Session, SessionCookie
+from ..errors import (
     AuthenticationRequiredError,
     HumanInterventionRequiredError,
     NetworkError,
@@ -20,7 +21,7 @@ from .errors import (
     RateLimitedError,
     UnexpectedResponseError,
 )
-from .models import (
+from ..models import (
     CATEGORY_RUBRIQUES,
     DIFFICULTY_SCORES,
     Category,
@@ -38,9 +39,22 @@ from .models import (
     WebForm,
     WebPage,
 )
-from .parsers import api, web
-from .transport import Query, Transport
-from .urls import platform_url
+from ..parsers import api, web
+from ..transport import Query, Transport, platform_url
+from .queries import (
+    build_query,
+    challenge_query,
+    find_form,
+    validate_identifier,
+    validate_language,
+)
+
+# Private aliases for internal methods and backwards-compatibility
+_find_form = find_form
+_identifier = validate_identifier
+_language = validate_language
+_query = build_query
+_challenge_query = challenge_query
 
 API_URL = f"https://{API_HOST}"
 WEB_URL = f"https://{WEB_HOST}"
@@ -72,6 +86,7 @@ class RootMeClient:
             read_retries=read_retries,
             max_retry_delay=max_retry_delay,
         )
+        self._cached_solved_ids: set[int] | None = None
         if supplied:
             self._connect(username, password, credentials_file)
 
@@ -112,6 +127,7 @@ class RootMeClient:
     ) -> Session:
         """Connect with credentials, automatically handling the site's JavaScript gate."""
         credentials = Credentials.load(username, password, credentials_file)
+        self._cached_solved_ids = None
         self._close_browser()
         self.session.cookies = tuple(c for c in self.session.cookies if c.name != "spip_session")
         try:
@@ -127,7 +143,7 @@ class RootMeClient:
         timeout: float = 180,
     ) -> Session:
         """Open managed JS access; ordinary password login calls this automatically."""
-        from .authentication.browser import BrowserSession
+        from ..authentication.browser import BrowserSession
 
         self._close_browser()
         browser = BrowserSession(self.session, timeout=timeout)
@@ -157,24 +173,10 @@ class RootMeClient:
         finally:
             self.session.cookies = ()
             self._close_browser()
+            self._cached_solved_ids = None
 
     def get_challenge(self, reference: int | str) -> Challenge:
-        """Read API metadata by ID, or a complete web challenge by its URL.
-
-        Args:
-            reference: Numeric challenge ID or full website challenge URL.
-
-        Returns:
-            Challenge: Deserialized challenge data.
-        """
-        if isinstance(reference, str):
-            return web.challenge_page(self._get_page(reference))
-        _identifier(reference)
-        data = self._one(f"/challenges/{reference}")
-        return api.challenge(data, identifier=reference)
-
-    def read_challenge(self, reference: int | str) -> Challenge:
-        """Read the statement and resources, resolving an API ID to its actual URL.
+        """Fetch the complete challenge with full statement, resources and metadata.
 
         Args:
             reference: Numeric challenge ID or full website challenge URL.
@@ -183,7 +185,45 @@ class RootMeClient:
             Challenge: Complete challenge with statement and resources.
         """
         url = self._challenge_url(reference)
-        return web.challenge_page(self._get_page(url))
+        document = self._get_page(url)
+        cid = reference if isinstance(reference, int) else None
+        is_solved = (cid in self._user_solved_ids) if cid is not None else None
+        ch = web.challenge_page(document, solved=is_solved)
+        target_id = ch.id or cid
+        if target_id is not None and target_id in self._user_solved_ids and not ch.solved:
+            return replace(ch, solved=True)
+        return ch
+
+    def read_challenge(self, reference: int | str) -> Challenge:
+        """Read the complete challenge statement, resources and metadata.
+
+        Args:
+            reference: Numeric challenge ID or full website challenge URL.
+
+        Returns:
+            Challenge: Complete challenge with statement and resources.
+        """
+        return self.get_challenge(reference)
+
+    @property
+    def _user_solved_ids(self) -> set[int]:
+        """Return the set of challenge IDs validated by the authenticated user."""
+        if self._cached_solved_ids is None:
+            self._cached_solved_ids = self._load_user_solved_ids()
+        return self._cached_solved_ids
+
+    def _load_user_solved_ids(self) -> set[int]:
+        """Fetch solved challenge IDs from user validations when authenticated."""
+        cookie = self.session.spip_session
+        if not cookie or not cookie.split("_")[0].isdecimal():
+            return set()
+        validations = self.get_profile().data.get("validations", [])
+        result = set()
+        for record in api.records(validations):
+            identifier = api.integer(record, "id_challenge", required=True)
+            assert identifier is not None
+            result.add(identifier)
+        return result
 
     def search_challenges(
         self,
@@ -491,7 +531,10 @@ class RootMeClient:
             return SubmissionResult(SubmissionStatus.BLOCKED, retry_after=error.retry_after)
         except (NetworkError, UnexpectedResponseError):
             return SubmissionResult(SubmissionStatus.INDETERMINATE)
-        return web.submission_result(result, answer)
+        outcome = web.submission_result(result, answer)
+        if outcome.status == SubmissionStatus.ACCEPTED:
+            self._cached_solved_ids = None
+        return outcome
 
     def download(self, resource: Resource | str, destination: str | Path | None = None) -> bytes:
         """Download a public HTTPS attachment without account credentials.
@@ -514,10 +557,12 @@ class RootMeClient:
         """Resolve a challenge reference without constructing an unverified web route."""
         if isinstance(reference, str):
             return platform_url(reference)
-        result = self.get_challenge(reference)
-        if not result.url:
+        _identifier(reference)
+        data = self._one(f"/challenges/{reference}")
+        url = api.challenge(data, identifier=reference).url
+        if not url:
             raise UnexpectedResponseError("API did not provide a challenge URL.")
-        return platform_url(result.url)
+        return platform_url(url)
 
     def _one(self, path: str) -> JSONObject:
         """Require exactly one data record in a detail response."""
@@ -577,70 +622,3 @@ def _initial_session(session: Session | None, cookie: str | None, supplied: bool
         raise ValueError("Supply login/password, a session or a session cookie, not several.")
     cookies = (SessionCookie("spip_session", cookie),) if cookie else ()
     return session or Session(cookies=cookies)
-
-
-def _find_form(document: WebPage, name: str) -> WebForm:
-    """Resolve a current form by its observed SPIP action or HTML identifier."""
-    matches = [form for form in document.forms if form.name == name]
-    if len(matches) == 1:
-        return matches[0]
-    if any(form.name == "login" for form in document.forms):
-        raise AuthenticationRequiredError(
-            "Page requires an authenticated web session.", reason="rejected"
-        )
-    raise UnexpectedResponseError("Expected form is missing or ambiguous.")
-
-
-def _identifier(identifier: int) -> None:
-    """Reject nonpositive IDs, including booleans masquerading as integers."""
-    if type(identifier) is not int or identifier <= 0:
-        raise ValueError("Identifier must be a positive integer.")
-
-
-def _language(language: str) -> None:
-    """Validate a simple platform language code at the caller boundary."""
-    if len(language) != 2 or not language.isascii() or not language.isalpha():
-        raise ValueError("Language must be a two-letter code.")
-
-
-def _query(values: Mapping[str, str | int | None]) -> httpx.QueryParams:
-    """Omit absent API filters without dropping zero-valued filters."""
-    return httpx.QueryParams({key: value for key, value in values.items() if value is not None})
-
-
-def _challenge_query(
-    *,
-    title: str | None = None,
-    subtitle: str | None = None,
-    language: str | None = None,
-    lang: str | None = None,
-    score: int | None = None,
-    author_ids: Sequence[int] = (),
-    **extra_filters: str | int,
-) -> httpx.QueryParams:
-    """Build query parameters for challenge listing and lazy iteration.
-
-    Args:
-        title: Substring matching the challenge title.
-        subtitle: Substring matching the challenge subtitle.
-        language: Two-letter language code filter ("en" or "fr").
-        lang: Alias for language matching the Root-Me API parameter name.
-        score: Exact challenge point score filter.
-        author_ids: Sequence of author IDs who created the challenge.
-        **extra_filters: Additional raw query parameters sent to the API.
-
-    Returns:
-        httpx.QueryParams: Serialized and validated query parameters.
-    """
-    if language is not None and lang is not None and language != lang:
-        raise ValueError("Supply either language or lang, not conflicting values.")
-    selected = language if language is not None else lang
-    if selected is not None:
-        _language(selected)
-    for identifier in author_ids:
-        _identifier(identifier)
-    params = _query({"titre": title, "soustitre": subtitle, "lang": selected, "score": score})
-    pairs = list(params.multi_items()) + [("id_auteur[]", str(i)) for i in author_ids]
-    for key, value in extra_filters.items():
-        pairs.append((key, str(value)))
-    return httpx.QueryParams(tuple(pairs))

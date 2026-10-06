@@ -5,7 +5,7 @@ from email.utils import parsedate_to_datetime
 
 import httpx
 
-from .errors import (
+from ..errors import (
     AuthenticationRequiredError,
     HumanInterventionRequiredError,
     NotFoundError,

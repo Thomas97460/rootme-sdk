@@ -19,7 +19,7 @@ from rootme_sdk import (
     UnexpectedResponseError,
     Upload,
 )
-from rootme_sdk.client import _find_form
+from rootme_sdk.client.client import _find_form
 from rootme_sdk.parsers.web import page
 
 WEB = "https://www.root-me.org/"
@@ -47,18 +47,20 @@ def test_already_solved_feedback_does_not_send_another_answer() -> None:
     assert handler.call_count == 1
 
 
-def test_official_api_methods_and_documented_filters() -> None:
+def test_official_api_methods_and_documented_filters(fixture_html: Path) -> None:
     calls: list[httpx.Request] = []
+    challenge_html = (fixture_html / "challenge.html").read_text(encoding="utf-8")
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request)
         path = request.url.path
         if path.startswith("/challenges"):
             data = {"titre": "Example", "score": "10", "url_challenge": CHALLENGE}
-        else:
-            assert path == "/auteurs/2"
+            return httpx.Response(200, json=[data, {"rel": "self", "href": str(request.url)}])
+        if path.startswith("/auteurs/2"):
             data = {"nom": "Example", "id_auteur": "2", "score": "10", "position": "4"}
-        return httpx.Response(200, json=[data, {"rel": "self", "href": str(request.url)}])
+            return httpx.Response(200, json=[data, {"rel": "self", "href": str(request.url)}])
+        return httpx.Response(200, text=challenge_html)
 
     with RootMeClient(
         spip_session="test-session", transport=httpx.MockTransport(handler)
@@ -661,3 +663,121 @@ def test_get_profile_authenticated_and_explicit_user() -> None:
         pytest.raises(UnexpectedResponseError),
     ):
         invalid.get_profile()
+
+
+def test_get_challenge_corrects_solved_status_via_cache(fixture_html: Path) -> None:
+    """Report account progression even when the challenge page lacks a solved marker."""
+    challenge_html = (fixture_html / "challenge.html").read_text(encoding="utf-8")
+    profile_data = {
+        "id_auteur": "779366",
+        "nom": "Test",
+        "score": "100",
+        "position": "1",
+        "validations": {"0": {"id_challenge": "7"}},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.www.root-me.org":
+            path = request.url.path
+            if path.startswith("/challenges"):
+                return httpx.Response(
+                    200,
+                    json=[
+                        {"titre": "Example", "score": "10", "url_challenge": CHALLENGE},
+                        {"rel": "self", "href": str(request.url)},
+                    ],
+                )
+            # /auteurs/779366
+            return httpx.Response(
+                200, json=[profile_data, {"rel": "self", "href": str(request.url)}]
+            )
+        # Web page: no solved marker -> ch.solved will be False from HTML
+        return httpx.Response(200, text=challenge_html)
+
+    with RootMeClient(
+        spip_session="779366_testtoken", transport=httpx.MockTransport(handler)
+    ) as client:
+        # Pre-populate the cache so _load_user_solved_ids is not called during get_challenge
+        client._cached_solved_ids = {7}
+        # Pass the URL (str) so cid=None → is_solved=None → challenge_page falls back to HTML
+        # detection (returns solved=False since fixture has no success marker) → line 180 triggers
+        ch = client.get_challenge(CHALLENGE)
+        # The cache override must flip solved to True (line 180)
+        assert ch.solved is True
+
+
+def test_load_user_solved_ids_happy_path() -> None:
+    """Cover client.py lines 207-209: _load_user_solved_ids when profile returns validations."""
+    profile_data = {
+        "id_auteur": "779366",
+        "nom": "Test",
+        "score": "50",
+        "position": "5",
+        "validations": {"0": {"id_challenge": "42"}, "1": {"id_challenge": "99"}},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[profile_data, {"rel": "self", "href": str(request.url)}])
+
+    with RootMeClient(
+        spip_session="779366_testtoken", transport=httpx.MockTransport(handler)
+    ) as client:
+        solved = client._user_solved_ids
+        assert 42 in solved and 99 in solved
+        # Second access uses the cache (no extra call expected)
+        assert client._user_solved_ids is solved
+
+
+@pytest.mark.parametrize(
+    "validations", [True, "invalid", [{"id_challenge": True}], [{"unexpected": "value"}]]
+)
+def test_invalid_progression_data_is_reported(validations: object) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"nom": "Example", "validations": validations})
+
+    with RootMeClient(
+        spip_session="42_synthetic", transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(UnexpectedResponseError):
+            _ = client._user_solved_ids
+        assert client._cached_solved_ids is None
+
+
+def test_progression_authentication_failure_is_not_reported_as_unsolved() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401)
+
+    with RootMeClient(
+        spip_session="42_synthetic", transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(AuthenticationRequiredError):
+            _ = client._user_solved_ids
+        assert client._cached_solved_ids is None
+
+
+def test_successful_submission_invalidates_progression_without_extra_reads(
+    fixture_html: Path,
+) -> None:
+    challenge_html = (fixture_html / "challenge.html").read_text(encoding="utf-8")
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.method == "POST":
+            return httpx.Response(
+                200,
+                text='<div id="formulaire_validation_challenge"><p class="success">'
+                "Validated</p></div>",
+            )
+        return httpx.Response(200, text=challenge_html)
+
+    with RootMeClient(
+        spip_session="42_synthetic", transport=httpx.MockTransport(handler)
+    ) as client:
+        client._cached_solved_ids = {1}
+        assert (
+            client.submit_answer(CHALLENGE, "synthetic-answer").status == SubmissionStatus.ACCEPTED
+        )
+        assert client._cached_solved_ids is None
+    assert [request.method for request in calls] == ["GET", "GET", "POST"]
+    assert all(request.url.host == "www.root-me.org" for request in calls)

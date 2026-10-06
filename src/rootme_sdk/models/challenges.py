@@ -1,18 +1,27 @@
-"""Typed public data returned by the API and web adapters."""
+"""Challenge, category, difficulty and submission domain models."""
 
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-type JSONValue = None | bool | int | float | str | list[JSONValue] | dict[str, JSONValue]
-type JSONObject = dict[str, JSONValue]
+from ..transport.urls import sanitize_url
+from .collections import JSONObject
 
 
 @dataclass(frozen=True)
 class Resource:
     """A link to a challenge attachment, documentation or service."""
 
-    url: str = field(repr=False)
+    url: str
     label: str = ""
+
+    def __post_init__(self) -> None:
+        """Encode unescaped characters in the resource URL."""
+        object.__setattr__(self, "url", sanitize_url(self.url))
+
+    @property
+    def title(self) -> str:
+        """Alias for label."""
+        return self.label
 
 
 class Category(StrEnum):
@@ -134,76 +143,6 @@ class Challenge:
     validations_count: int | None = None
     resources: tuple[Resource, ...] = ()
     data: JSONObject = field(default_factory=dict, repr=False)
-
-
-@dataclass(frozen=True)
-class UserProfile:
-    """User data and solved challenge references supplied by the platform."""
-
-    id: int | None
-    name: str
-    score: int | None = None
-    position: int | None = None
-    rank: int | None = None
-    solved_challenges_count: int = 0
-    data: JSONObject = field(default_factory=dict, repr=False)
-
-    @property
-    def username(self) -> str:
-        """Alias for name."""
-        return self.name
-
-
-@dataclass(frozen=True)
-class FormField:
-    """A discovered HTML control, including allowed select/radio options."""
-
-    name: str
-    kind: str
-    value: str = field(default="", repr=False)
-    options: tuple[str, ...] = ()
-    required: bool = False
-    checked: bool = False
-
-
-@dataclass(frozen=True)
-class Upload:
-    """A caller-supplied file to upload through a discovered file control."""
-
-    filename: str
-    content: bytes = field(repr=False)
-    content_type: str = "application/octet-stream"
-
-
-@dataclass(frozen=True)
-class Collection[T]:
-    """One official API page plus its server-provided continuation URL."""
-
-    items: tuple[T, ...]
-    next_url: str | None = None
-
-
-@dataclass(frozen=True)
-class WebForm:
-    """A server-rendered form; hidden values are intentionally absent from repr."""
-
-    page_url: str = field(repr=False)
-    action: str = field(repr=False)
-    method: str
-    name: str
-    fields: tuple[FormField, ...] = field(repr=False)
-
-
-@dataclass(frozen=True)
-class WebPage:
-    """A readable platform page with links and discovered forms."""
-
-    url: str
-    title: str
-    text: str = field(repr=False)
-    links: tuple[Resource, ...] = field(repr=False)
-    forms: tuple[WebForm, ...] = field(repr=False)
-    html: str = field(repr=False)
 
 
 class SubmissionStatus(StrEnum):

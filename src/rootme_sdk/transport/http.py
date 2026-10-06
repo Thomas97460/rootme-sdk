@@ -7,17 +7,17 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 
-from .authentication.session import WEB_HOST, Session, SessionCookie
-from .errors import (
+from ..authentication.session import WEB_HOST, Session, SessionCookie
+from ..errors import (
     AuthenticationRequiredError,
     NetworkError,
     UnexpectedResponseError,
 )
 from .responses import check_response, retry_after
-from .urls import platform_url
+from .urls import platform_url, sanitize_url
 
 if TYPE_CHECKING:
-    from .authentication.browser import BrowserSession
+    from ..authentication.browser import BrowserSession
 
 type Query = Mapping[str, str | int] | httpx.QueryParams
 type Files = Mapping[str, tuple[str, bytes, str]]
@@ -85,6 +85,7 @@ class Transport:
 
     def download(self, url: str) -> bytes:
         """Fetch a public HTTPS resource without any account cookies, across redirects."""
+        url = sanitize_url(url)
         for _ in range(6):
             parts = urlsplit(url)
             if parts.scheme != "https" or parts.username or parts.password:
@@ -96,7 +97,7 @@ class Transport:
             if not response.is_redirect:
                 check_response(response)
                 return response.content
-            url = urljoin(str(response.url), response.headers.get("location", ""))
+            url = sanitize_url(urljoin(str(response.url), response.headers.get("location", "")))
         raise UnexpectedResponseError("Resource redirect limit exceeded.")
 
     def _require_auth(self, required: bool) -> None:

@@ -9,7 +9,7 @@ from rootme_sdk import (
     RateLimitedError,
     UnexpectedResponseError,
 )
-from rootme_sdk.responses import check_response, retry_after
+from rootme_sdk.transport.responses import check_response, retry_after
 
 WEB = "https://www.root-me.org/"
 

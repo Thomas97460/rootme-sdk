@@ -22,8 +22,7 @@ from ..errors import (
     RootMeError,
     UnexpectedResponseError,
 )
-from ..responses import check_response
-from ..urls import platform_url
+from ..transport import check_response, platform_url
 from .session import DEFAULT_AGENT, WEB_HOST, Session, SessionCookie
 
 if TYPE_CHECKING:
@@ -120,23 +119,54 @@ class BrowserSession:
         from playwright.sync_api import Error as PlaywrightError
 
         try:
-            return self._authenticate(username, password)
+            return self._authenticate_with_retry(username, password)
         except PlaywrightError:
             raise NetworkError("Browser authentication failed; retry explicitly.") from None
 
+    def _authenticate_with_retry(self, username: str, password: str) -> Session:
+        """Renew one explicitly rejected session after a completed native login redirect."""
+        try:
+            return self._authenticate(username, password)
+        except AuthenticationRequiredError as error:
+            if (
+                error.reason != "rejected"
+                or not self._login_redirected
+                or not self.session.spip_session
+            ):
+                raise
+        self.context.clear_cookies(name="spip_session")
+        self.session.cookies = tuple(c for c in self.session.cookies if c.name != "spip_session")
+        return self._authenticate(username, password)
+
     def _authenticate(self, username: str, password: str) -> Session:
         """Await the native login response and verify account access independently of UI."""
+        self._login_redirected = False
         check_response(self._get(httpx.Request("GET", f"https://{WEB_HOST}/?page=login&lang=en")))
-        self.page.wait_for_load_state("load")
-        self._settle_login()
-        self.page.locator('#formulaire_login input[name="var_login"]').fill(username)
-        self.page.locator('#formulaire_login input[name="password"]').fill(password)
-        self._settle_login()
+        self._wait_login_form()
+        self._fill_login(username, password)
         with self.page.expect_response(_login_response, timeout=self.timeout * 1000) as pending:
-            self.page.locator('#formulaire_login input[type="submit"]').click()
+            self.page.locator('#formulaire_login input[type="submit"]').click(
+                timeout=min(self.timeout * 1000, 30000)
+            )
         self._complete_login(pending.value)
         self._confirm_login()
         return self.session
+
+    def _fill_login(self, username: str, password: str) -> None:
+        """Fill usable login fields with a bounded wait and secret-free failure messages."""
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+        timeout = min(self.timeout * 1000, 30000)
+        try:
+            login = self.page.locator('#formulaire_login input[name="var_login"]')
+            login.fill(username, timeout=timeout)
+            login.press("Tab", timeout=timeout)
+            self._settle_login(username)
+            self.page.locator('#formulaire_login input[name="password"]').fill(
+                password, timeout=timeout
+            )
+        except PlaywrightTimeoutError:
+            raise NetworkError("The login fields could not be filled within the timeout.") from None
 
     def _complete_login(self, response: BrowserResponse) -> None:
         """Await decoded AJAX responses or native redirects without relying on menu updates."""
@@ -161,46 +191,78 @@ class BrowserSession:
             )
         else:
             self._await_login_navigation()
-        self._settle_login()
+        self._login_redirected = "login" not in parse_qs(urlsplit(self.page.url).query).get(
+            "page", []
+        )
 
     def _await_login_navigation(self) -> None:
         """Wait for JavaScript-driven login redirects away from the login page."""
-        from playwright.sync_api import Error as PlaywrightError
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-        with suppress(PlaywrightError):
+        with suppress(PlaywrightTimeoutError):
             self.page.wait_for_url(
-                lambda u: "?page=login" not in u,
+                lambda u: "login" not in parse_qs(urlsplit(u).query).get("page", []),
                 wait_until="domcontentloaded",
                 timeout=min(self.timeout * 1000, 15000),
             )
 
-    def _settle_login(self) -> None:
-        """Await page initialization and pending identity AJAX before advancing login."""
-        self.page.wait_for_function(
-            "window.jQuery && jQuery.isReady && jQuery.active === 0 && "
-            "(!window.login_info || !login_info.informe_auteur_en_cours)",
-            timeout=self.timeout * 1000,
-        )
+    def _wait_login_form(self) -> None:
+        """Await the login controls and their handlers without unrelated page requests."""
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+        try:
+            self.page.wait_for_function(
+                "window.jQuery && jQuery.isReady && window.login_info && "
+                "document.querySelector('#formulaire_login input[name=var_login]') && "
+                "document.querySelector('#formulaire_login input[name=password]')",
+                timeout=min(self.timeout * 1000, 30000),
+            )
+        except PlaywrightTimeoutError:
+            raise NetworkError("The login form did not become ready within the timeout.") from None
+
+    def _settle_login(self, username: str) -> None:
+        """Await only the current login's identity lookup, excluding background AJAX."""
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+        try:
+            self.page.wait_for_function(
+                "username => window.login_info && !login_info.informe_auteur_en_cours && "
+                "login_info.login === username",
+                arg=username,
+                timeout=min(self.timeout * 1000, 30000),
+            )
+        except PlaywrightTimeoutError:
+            raise NetworkError(
+                "The login identity lookup did not complete within the timeout."
+            ) from None
 
     def _confirm_login(self) -> None:
-        """Verify account-only access within the browser tab that completed authentication."""
-        from playwright.sync_api import Error as PlaywrightError
+        """Verify account access, retrying one read if the new session is not yet usable."""
+        for _ in range(2):
+            if self._account_access():
+                return
+            if not self.session.spip_session:
+                break
+        raise AuthenticationRequiredError("Login did not grant account access.", reason="rejected")
+
+    def _account_access(self) -> bool:
+        """Read preferences and refresh cookies after awaiting its hidden account control."""
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
         check_response(
             self._get(httpx.Request("GET", f"https://{WEB_HOST}/?page=preferences&lang=en"))
         )
-        with suppress(PlaywrightError):
+        with suppress(PlaywrightTimeoutError):
             self.page.wait_for_selector(
                 'input[name="formulaire_action"][value="modifier_auteur"]',
-                timeout=min(self.timeout * 1000, 5000),
+                state="attached",
+                timeout=min(self.timeout * 1000, 15000),
             )
+        self._sync()
         editable = self.page.locator(
             'input[name="formulaire_action"][value="modifier_auteur"]'
         ).count()
-        if not self.session.spip_session or not editable:
-            raise AuthenticationRequiredError(
-                "Login did not grant account access.", reason="rejected"
-            )
+        return bool(self.session.spip_session and editable)
 
     def _verification(self) -> None:
         """Wait for the site's own JavaScript or human verification to finish."""
