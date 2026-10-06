@@ -140,6 +140,8 @@ class Challenge:
     ``files`` holds the challenge's own downloadable material (binaries, archives,
     captures) attached to the statement. ``resources`` holds the remaining links:
     documentation and references that Root-Me associates with the challenge.
+    ``instance_url`` is the hosted instance behind the "Start the challenge" button,
+    or ``None`` when the challenge has no web instance.
     """
 
     id: int | None
@@ -158,6 +160,7 @@ class Challenge:
     resources: tuple[Resource, ...] = ()
     files: tuple[Resource, ...] = ()
     data: JSONObject = field(default_factory=dict, repr=False)
+    instance_url: str | None = None
 
 
 class SubmissionStatus(StrEnum):
