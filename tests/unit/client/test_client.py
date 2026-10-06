@@ -8,6 +8,7 @@ import pytest
 from rootme_sdk import (
     AuthenticationRequiredError,
     Category,
+    Challenge,
     Difficulty,
     HumanInterventionRequiredError,
     NotFoundError,
@@ -192,6 +193,40 @@ def test_web_read_categories_and_download(fixture_html: Path, tmp_path: Path) ->
         target = tmp_path / "file"
         assert client.download(Resource("https://repository.root-me.org/file"), target) == b"file"
         assert target.read_bytes() == b"file"
+        assert client.download("https://repository.root-me.org/a/file", tmp_path) == b"file"
+        assert (tmp_path / "file").read_bytes() == b"file"
+
+
+def test_download_files_writes_only_challenge_files(tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "static.root-me.org"
+        assert request.headers["cookie"] == ""
+        return httpx.Response(200, content=request.url.path.encode())
+
+    challenge = Challenge(
+        7,
+        "Example",
+        resources=(Resource("https://repository.root-me.org/doc.pdf"),),
+        files=(
+            Resource("https://static.root-me.org/a/ch1.zip"),
+            Resource("https://static.root-me.org/b/ch1.pcap"),
+        ),
+    )
+    target = tmp_path / "new" / "41"
+    with RootMeClient(
+        spip_session="test-session", transport=httpx.MockTransport(handler)
+    ) as client:
+        assert client.download_files(challenge, target) == (target / "ch1.zip", target / "ch1.pcap")
+        assert client.download_files(Challenge(8, "Empty"), tmp_path / "empty") == ()
+    assert (target / "ch1.zip").read_bytes() == b"/a/ch1.zip"
+    assert sorted(p.name for p in target.iterdir()) == ["ch1.pcap", "ch1.zip"]
+
+
+def test_download_files_rejects_unsafe_names_before_writing(tmp_path: Path) -> None:
+    challenge = Challenge(7, "Example", files=(Resource("https://static.root-me.org/a/.."),))
+    with RootMeClient() as client, pytest.raises(ValueError):
+        client.download_files(challenge, tmp_path / "out")
+    assert not (tmp_path / "out").exists()
 
 
 def test_managed_browser_login_and_reconnection_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:

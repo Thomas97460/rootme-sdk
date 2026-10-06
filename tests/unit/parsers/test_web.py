@@ -64,10 +64,9 @@ def test_observed_challenge_structure(fixture_html: Path) -> None:
     assert "Read the supplied file carefully" in result.statement
     assert "synthetic-token" not in result.statement_html
     assert "throw new Error" not in result.statement_html
-    # Statement links first (descriptif div), then resources div; start button excluded
-    assert result.resources[0].url == "https://www.root-me.org/files/example.zip"
-    assert any(r.url == "https://www.root-me.org/ressources/extra.pdf" for r in result.resources)
-    assert not any("challenge01.root-me.org" in r.url for r in result.resources)
+    # Static statement attachments are files; documentation stays in resources
+    assert [f.url for f in result.files] == ["https://static.root-me.org/example/ch7.zip"]
+    assert [r.url for r in result.resources] == ["https://www.root-me.org/ressources/extra.pdf"]
     # Authors and date (lines 160-167)
     assert result.authors == ("testauthor",)
     assert result.date == "17 janvier 2006"
@@ -123,6 +122,24 @@ def test_challenge_resources_keep_names_and_exclude_start_targets() -> None:
     ]
     assert result.statement == "Statement\nArchive"
     assert "private" not in result.statement_html
+
+
+def test_challenge_files_are_static_attachments_separate_from_resources() -> None:
+    html = (
+        '<div class="tile"><h1 class="challenge-titre-7">Example</h1>'
+        '<h2 class="challenge-score-7">10</h2>'
+        '<div class="challenge-descriptif-7">'
+        '<a class="button" href="https://static.root-me.org/cracking/ch1/ch1.zip">Download</a>'
+        '<a href="https://static.root-me.org/programmation/ch28/ch28.zip">'
+        "https://static.root-me.org/programmation/ch28/ch28.zip</a>"
+        '<a href="https://en.wikipedia.org/wiki/ELF">ELF</a>'
+        '<a class="button" href="/?page=start_ctf_alltheday">Start the CTF</a></div>'
+        '<div class="challenge-ressources-7">'
+        '<a href="https://repository.root-me.org/doc.pdf">Doc</a></div></div>'
+    )
+    result = web.challenge_page(web.page(html, URL))
+    assert [f.filename for f in result.files] == ["ch1.zip", "ch28.zip"]
+    assert [r.label for r in result.resources] == ["ELF", "Doc"]
 
 
 def test_preferences_successful_controls_and_csrf(fixture_html: Path) -> None:

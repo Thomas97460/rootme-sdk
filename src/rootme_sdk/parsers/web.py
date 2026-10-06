@@ -18,7 +18,7 @@ from ..models import (
     WebForm,
     WebPage,
 )
-from ..transport import platform_url, sanitize_url
+from ..transport import STATIC_HOST, platform_url, sanitize_url
 from .api import score_to_difficulty
 
 _ALREADY_SOLVED_MESSAGES = (
@@ -186,15 +186,17 @@ def _is_start_button(resource: Resource) -> bool:
     return is_target or (host.endswith(".root-me.org") and host.startswith("challenge"))
 
 
-def _page_resources(
+def _page_links(
     tile: Tag, base_url: str, cid: int, statement: BeautifulSoup
-) -> tuple[Resource, ...]:
-    """Collect attached resource links excluding interactive start targets."""
+) -> tuple[tuple[Resource, ...], tuple[Resource, ...]]:
+    """Split challenge files served by Root-Me's static host from documentation links."""
     res: list[Resource] = list(links(statement, base_url))
     res_div = tile.select_one(f".challenge-ressources-{cid}")
     if res_div:
         res.extend(links(res_div, base_url))
-    return tuple(dict.fromkeys(r for r in res if not _is_start_button(r)))
+    unique = tuple(dict.fromkeys(r for r in res if not _is_start_button(r)))
+    files = tuple(r for r in unique if urlsplit(r.url).hostname == STATIC_HOST)
+    return files, tuple(r for r in unique if r not in files)
 
 
 def _page_statement(tile: Tag, cid: int) -> tuple[str, BeautifulSoup]:
@@ -229,6 +231,7 @@ def challenge_page(document: WebPage, *, solved: bool | None = None) -> Challeng
     base_url = _base(soup, document.url)
     is_solved = solved if solved is not None else _page_solved(soup)
     category = _page_category(document.url)
+    files, resources = _page_links(tile, base_url, cid, stmt_soup)
     return Challenge(
         id=cid,
         title=title.get_text(" ", strip=True),
@@ -243,7 +246,8 @@ def challenge_page(document: WebPage, *, solved: bool | None = None) -> Challeng
         authors=authors,
         date=date,
         validations_count=_page_validations_count(tile),
-        resources=_page_resources(tile, base_url, cid, stmt_soup),
+        resources=resources,
+        files=files,
     )
 
 

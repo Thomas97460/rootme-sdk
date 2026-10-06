@@ -1,8 +1,9 @@
 from .http import Files, Query, Transport
 from .responses import check_response, retry_after
-from .urls import platform_url, sanitize_url, website_url
+from .urls import STATIC_HOST, platform_url, sanitize_url, website_url
 
 __all__ = [
+    "STATIC_HOST",
     "Files",
     "Query",
     "Transport",

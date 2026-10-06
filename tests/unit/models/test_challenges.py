@@ -1,3 +1,5 @@
+import pytest
+
 from rootme_sdk.models.challenges import (
     CATEGORY_RUBRIQUES,
     DIFFICULTY_SCORES,
@@ -27,7 +29,7 @@ def test_challenges_models() -> None:
     )
 
     challenge = Challenge(7, "Example", resources=(resource,))
-    assert challenge.resources == (resource,)
+    assert challenge.resources == (resource,) and challenge.files == ()
     assert challenge.id == 7
     assert challenge.title == "Example"
 
@@ -45,3 +47,25 @@ def test_challenges_models() -> None:
     result = SubmissionResult(SubmissionStatus.ACCEPTED, "synthetic-secret")
     assert result.status == SubmissionStatus.ACCEPTED
     assert "synthetic-secret" not in repr(result)
+
+
+def test_resource_filename_is_the_decoded_last_path_segment() -> None:
+    assert Resource("https://static.root-me.org/cracking/ch1/ch1.zip").filename == "ch1.zip"
+    assert Resource("https://static.root-me.org/a/my file.pdf?x=1#y").filename == "my file.pdf"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://static.root-me.org/",
+        "https://static.root-me.org/a/..",
+        "https://static.root-me.org/a/%2E%2E",
+        "https://static.root-me.org/a/..%2Fsecret",
+        "https://static.root-me.org/a/..%5Csecret",
+        "https://static.root-me.org/a/c%3Aname",
+        "https://static.root-me.org/a/nul%00",
+    ],
+)
+def test_resource_filename_rejects_unsafe_names(url: str) -> None:
+    with pytest.raises(ValueError, match="file"):
+        _ = Resource(url).filename

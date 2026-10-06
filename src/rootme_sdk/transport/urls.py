@@ -4,6 +4,7 @@ from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 
 from ..authentication.session import API_HOST, WEB_HOST
 
+STATIC_HOST = "static.root-me.org"
 _PATH_SAFE = "/:@!$&'()*+,;=%~_-"
 _QUERY_SAFE = "&;=+%~_-?:@!$'()*,"
 _FRAG_SAFE = "/:@!$&'()*+,;=%~_-?"

@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from urllib.parse import unquote, urlsplit
 
 from ..transport.urls import sanitize_url
 from .collections import JSONObject
@@ -22,6 +23,14 @@ class Resource:
     def title(self) -> str:
         """Alias for label."""
         return self.label
+
+    @property
+    def filename(self) -> str:
+        """Return the decoded last URL path segment, rejecting names unsafe as a local file."""
+        name = unquote(urlsplit(self.url).path.rsplit("/", 1)[-1])
+        if name in {"", ".", ".."} or any(c in name for c in "/\\:\0"):
+            raise ValueError("Resource URL does not name a file.")
+        return name
 
 
 class Category(StrEnum):
@@ -126,7 +135,12 @@ class ChallengeSummary:
 
 @dataclass(frozen=True)
 class Challenge:
-    """Challenge metadata and statement; unavailable API fields remain absent."""
+    """Challenge metadata and statement; unavailable API fields remain absent.
+
+    ``files`` holds the challenge's own downloadable material (binaries, archives,
+    captures) attached to the statement. ``resources`` holds the remaining links:
+    documentation and references that Root-Me associates with the challenge.
+    """
 
     id: int | None
     title: str
@@ -142,6 +156,7 @@ class Challenge:
     date: str | None = None
     validations_count: int | None = None
     resources: tuple[Resource, ...] = ()
+    files: tuple[Resource, ...] = ()
     data: JSONObject = field(default_factory=dict, repr=False)
 
 

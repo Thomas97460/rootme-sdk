@@ -541,17 +541,35 @@ class RootMeClient:
 
         Args:
             resource: Resource instance from a challenge or direct download URL.
-            destination: Optional file path to save the downloaded bytes.
+            destination: Optional file path, or existing directory where the file keeps
+                the name from its URL, to save the downloaded bytes.
 
         Returns:
             bytes: The downloaded file contents.
         """
-        data = self._transport.download(
-            resource.url if isinstance(resource, Resource) else resource
-        )
+        target = resource if isinstance(resource, Resource) else Resource(resource)
+        data = self._transport.download(target.url)
         if destination is not None:
-            Path(destination).write_bytes(data)
+            path = Path(destination)
+            (path / target.filename if path.is_dir() else path).write_bytes(data)
         return data
+
+    def download_files(self, challenge: Challenge, directory: str | Path) -> tuple[Path, ...]:
+        """Download every challenge file, keeping the names from their URLs.
+
+        Args:
+            challenge: Challenge whose ``files`` are downloaded; ``resources`` are not.
+            directory: Directory created when missing; existing files are overwritten.
+
+        Returns:
+            tuple[Path, ...]: Paths of the written files, in ``challenge.files`` order.
+        """
+        folder = Path(directory)
+        paths = tuple(folder / file.filename for file in challenge.files)
+        folder.mkdir(parents=True, exist_ok=True)
+        for file, path in zip(challenge.files, paths, strict=True):
+            path.write_bytes(self._transport.download(file.url))
+        return paths
 
     def _challenge_url(self, reference: int | str) -> str:
         """Resolve a challenge reference without constructing an unverified web route."""

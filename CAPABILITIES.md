@@ -9,14 +9,14 @@ reads reuse the login cookie. Website JavaScript gates can affect public reads.
 | `login` | Connect/reconnect an existing client, with automatic JS assistance | Existing account | Same managed authentication flow |
 | `logout` | Server logout and local credential erasure | Session for server logout | Route observed; behavior tested offline |
 | `get_challenge(id)` | Complete website details through the API-provided URL | Login session and website access | API links and challenge pages observed |
-| `get_challenge(url)`, `read_challenge` | Full statement, named resource URLs and access instructions | Website access | Challenge pages observed |
+| `get_challenge(url)`, `read_challenge` | Full statement, challenge files, named resource URLs and access instructions | Website access | Challenge pages observed |
 | `list_challenges`, `iter_challenges` | Filters and pagination | Login session | Documented API; response shapes observed |
 | `list_categories` | Catalogue categories | Website access | 11 categories observed |
 | `get_user` | Account profile, score and available progression data | Login session | Authenticated profile response observed; validations hold solved entries |
 | `preferences` | Editable account field inventory | Web session | modifier_auteur form observed |
 | `update_preferences` | Selected profile changes and file uploads | Web session | Controls observed; tested offline |
 | `submit_answer` | One answer submission and structured result | Web session | Live already-solved response observed; other outcomes tested offline |
-| `download` | Attachments with scoped credentials | Public or same-host session | Tested offline |
+| `download`, `download_files` | Challenge files and resources with scoped credentials | Public or same-host session | Static challenge archives and repository PDFs downloaded live |
 
 ## Limits
 
@@ -40,11 +40,14 @@ Anonymous browser inspection confirmed that changing the login field starts an A
 identity lookup. Authentication now blurs that field explicitly and waits for the
 lookup to match the supplied login before entering the password. Redirect detection
 parses query parameters instead of assuming their order. Form readiness and identity
-lookup waits exclude unrelated AJAX and full-page asset loading; each form readiness
-or field-entry wait is capped at 30 seconds. Verification waits for the hidden preferences
+lookup waits exclude unrelated AJAX and full-page asset loading; each interactive
+login step is capped at 10 seconds. Verification waits for the hidden preferences
 control to be attached, then refreshes cookies; the previous visibility wait could
 only time out and left an earlier cookie snapshot. When a session is present, a
 missing account form triggers one more preferences GET, never another login POST.
+On 2026-10-06 the rejected sessions were observed as a redirect from preferences
+to the login page; that redirect is now an immediate rejection instead of a wait
+for the account control, so renewal starts within about a second.
 After a native login redirect, an explicitly rejected session is cleared and login
 is attempted once more. Persistent denial still raises an authentication error;
 missing sessions, credentials rejected on the login page, human verification,
@@ -65,10 +68,18 @@ observed success/error and SPIP feedback classes. Explicit English/French
 already-solved messages are recognized. HTTP 429 is blocked; ambiguous failures
 and unknown feedback remain indeterminate. Writes are never automatically replayed.
 
+Challenge files are the page links served by `static.root-me.org`. On 2026-10-06,
+challenges sampled in every category placed their downloadable material there,
+mostly behind the statement's *Download the challenge* button and once as a plain
+statement link; related documentation lives in a separate block. Statement links
+to other hosts, code-snippet downloads and *Start* buttons are not challenge files.
+Some hosted challenges serve a file through their *Start* link on a challenge
+server over HTTP; the SDK does not treat or download those as files.
+
 Account updates support one value per control and one file per upload control.
 Preference mutations have not been manually exercised. The SDK exposes account
 and challenge operations only; generic forms are private implementation details.
 
 Source: [official API documentation](https://api.www.root-me.org/?lang=en) and
-manual observations on 2026-10-04 and 2026-10-05. No real answer, credential or account snapshot
+manual observations from 2026-10-04 to 2026-10-06. No real answer, credential or account snapshot
 is committed in fixtures.
