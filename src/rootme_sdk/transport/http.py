@@ -13,6 +13,7 @@ from ..errors import (
     NetworkError,
     UnexpectedResponseError,
 )
+from .pacing import RequestPacer
 from .responses import check_response, retry_after
 from .urls import platform_url, sanitize_url
 
@@ -21,11 +22,6 @@ if TYPE_CHECKING:
 
 type Query = Mapping[str, str | int] | httpx.QueryParams
 type Files = Mapping[str, tuple[str, bytes, str]]
-
-
-def _default_transport() -> httpx.BaseTransport:
-    """Create a transport bound to IPv4 to prevent platform-side IPv6 rate limits."""
-    return httpx.HTTPTransport(local_address="0.0.0.0")
 
 
 class Transport:
@@ -39,16 +35,17 @@ class Transport:
         timeout: float = 30,
         read_retries: int = 1,
         max_retry_delay: float = 5,
+        min_request_interval: float = 2,
         wait: Callable[[float], None] = sleep,
     ) -> None:
-        """Create bounded transport; retries apply only to GET requests."""
+        """Create paced, bounded transport; retries apply only to GET requests."""
         if timeout <= 0 or read_retries < 0 or max_retry_delay < 0:
             raise ValueError("Invalid timeout or retry configuration.")
         self.session = session
         self.read_retries, self.max_retry_delay, self.wait = read_retries, max_retry_delay, wait
+        self.pacer = RequestPacer(min_request_interval)
         self.browser: BrowserSession | None = None
-        base_transport = transport if transport is not None else _default_transport()
-        self.http = httpx.Client(transport=base_transport, timeout=timeout, trust_env=False)
+        self.http = httpx.Client(transport=transport, timeout=timeout, trust_env=False)
 
     def close(self) -> None:
         """Close the owned HTTP connection pool."""
@@ -151,7 +148,8 @@ class Transport:
         cookies: bool = True,
         files: Files | None = None,
     ) -> httpx.Response:
-        """Send one request after stripping the HTTP client's automatic cookie jar."""
+        """Send one paced request after stripping the HTTP client's automatic cookie jar."""
+        self.pacer.pace()
         self.http.cookies.clear()
         parts = urlsplit(url)
         cookie = self.session.cookie_header(parts.hostname or "", parts.path) if cookies else ""

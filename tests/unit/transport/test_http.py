@@ -17,10 +17,37 @@ WEB = "https://www.root-me.org/"
 API = "https://api.www.root-me.org/challenges"
 
 
-@pytest.mark.parametrize("kwargs", [{"timeout": 0}, {"read_retries": -1}, {"max_retry_delay": -1}])
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"timeout": 0}, {"read_retries": -1}, {"max_retry_delay": -1}, {"min_request_interval": -1}],
+)
 def test_bad_request_configuration(kwargs: dict[str, int]) -> None:
     with pytest.raises(ValueError):
         Transport(Session(), **kwargs)
+
+
+def test_requests_retries_and_downloads_are_paced(paced_waits: list[float]) -> None:
+    statuses = iter([200, 503, 200, 200])
+    handler = MagicMock(side_effect=lambda request: httpx.Response(next(statuses)))
+    waits: list[float] = []
+    boundary = Transport(Session(), transport=httpx.MockTransport(handler), wait=waits.append)
+    boundary.request("GET", WEB)
+    assert paced_waits == []
+    boundary.request("GET", WEB)
+    boundary.download(WEB)
+    assert handler.call_count == 4 and waits == [0.25] and paced_waits == [2, 2, 2]
+    boundary.close()
+
+
+def test_configured_interval_spaces_requests(paced_waits: list[float]) -> None:
+    handler = MagicMock(return_value=httpx.Response(200))
+    boundary = Transport(
+        Session(), transport=httpx.MockTransport(handler), min_request_interval=0.5
+    )
+    boundary.request("GET", WEB)
+    boundary.request("GET", API)
+    assert paced_waits == [0.5]
+    boundary.close()
 
 
 def test_missing_authentication_fails_without_request() -> None:

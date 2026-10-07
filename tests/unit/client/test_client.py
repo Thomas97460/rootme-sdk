@@ -28,6 +28,16 @@ API = "https://api.www.root-me.org"
 CHALLENGE = WEB + "en/Challenges/Example/Test"
 
 
+@pytest.mark.parametrize("options,expected", [({}, [2]), ({"min_request_interval": 0}, [])])
+def test_request_interval_defaults_to_two_seconds(
+    paced_waits: list[float], options: dict[str, float], expected: list[float]
+) -> None:
+    handler = MagicMock(return_value=httpx.Response(200, content=b"data"))
+    with RootMeClient(transport=httpx.MockTransport(handler), **options) as client:
+        assert client.download(CHALLENGE) == client.download(CHALLENGE) == b"data"
+    assert paced_waits == expected
+
+
 def test_already_solved_feedback_does_not_send_another_answer() -> None:
     handler = MagicMock(
         return_value=httpx.Response(
