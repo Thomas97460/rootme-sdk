@@ -77,6 +77,15 @@ binds connections to IPv4. On 2026-10-07, anonymous website and API reads succee
 over both IPv4 and IPv6, and the default transport selected IPv6 where available.
 Changing address family to escape a rate limit is not attempted automatically.
 
+A JavaScript gate that never completes used to keep the browser waiting for the
+whole 180-second browser timeout, and its proof-of-work workers kept running after
+the error while the browser stayed attached. A local reproduction on 2026-10-07 with
+headed Chromium and a synthetic endless gate (four busy workers) measured 180 seconds
+of waiting and about 400% CPU afterwards. The gate wait is now capped at 10 seconds
+and the page is cleared on timeout: the same reproduction failed after 10.1 seconds
+and Chromium returned to 0% CPU within 3 seconds. On the same day, the managed
+Chromium reached `www.root-me.org` over IPv6, like the default HTTPX transport.
+
 Challenge files are the page links served by `static.root-me.org`. On 2026-10-06,
 challenges sampled in every category placed their downloadable material there,
 mostly behind the statement's *Download the challenge* button and once as a plain

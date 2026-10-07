@@ -40,6 +40,8 @@ _FETCH_SCRIPT = """async ({url, method, body, contentType, timeout}) => {
                 retryAfter: r.headers.get('Retry-After') || ''};
             }"""
 _STEP_TIMEOUT_MS = 10_000
+# A passing Anubis proof of work takes seconds; waiting longer only burns CPU.
+_VERIFICATION_TIMEOUT_MS = 10_000
 
 
 class BrowserSession:
@@ -274,15 +276,16 @@ class BrowserSession:
         return min(self.timeout * 1000, _STEP_TIMEOUT_MS)
 
     def _verification(self) -> None:
-        """Wait for the site's own JavaScript or human verification to finish."""
+        """Wait briefly for the site's JavaScript verification, then stop its computation."""
         from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
         try:
             self.page.wait_for_function(
                 "!document.querySelector('#anubis_challenge, #anubis_version, [id^=cf-chl-]')",
-                timeout=self.timeout * 1000,
+                timeout=min(self.timeout * 1000, _VERIFICATION_TIMEOUT_MS),
             )
         except PlaywrightTimeoutError:
+            self.page.goto("about:blank")
             raise HumanInterventionRequiredError("https://www.root-me.org/") from None
         self._sync()
 

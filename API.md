@@ -21,7 +21,12 @@ Alternatively, `RootMeClient(credentials_file=".secrets/credentials.json")` read
 `{"login": "...", "password": "..."}` as UTF-8. Supply exactly one credential
 source. An anonymous `RootMeClient()` can read website challenge URLs and categories;
 an ID must first resolve through the authenticated API. Anonymous reads may still
-open a graphical browser for JavaScript verification.
+open a graphical browser for JavaScript verification. That verification (Anubis proof of work)
+is given at most 10 seconds; if it has not finished, the browser page is cleared to
+stop the computation and `HumanInterventionRequiredError` is raised. Calling again
+starts a new 10-second attempt, so do not retry it in a loop. The `transport` argument
+configures HTTPX requests only; the managed browser uses the system's network
+selection.
 
 `session_file=".secrets/session.json"` adds a reusable session to supplied credentials.
 The client first loads that file and checks it with one profile read. Only a missing,
