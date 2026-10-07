@@ -123,6 +123,8 @@ Credentials can also come from a JSON file `{"login": "...", "password": "..."}`
 ## Important Notes
 
 - **Graphical Display**: Password login uses an isolated, headed Chromium browser to handle Root-Me's native login flow. A working graphical display is required (`DISPLAY` on Linux).
+- **Rate Limits**: Root-Me throttles bursts with HTTP 429, sometimes for several minutes. The client waits at least 2 seconds between requests by default (`min_request_interval=2`); keep this pace across clients and processes sharing one network address. `RateLimitedError.retry_after` gives the server's waiting interval when one is sent, and `submit_flag` returns `SubmissionStatus.BLOCKED` instead of raising.
+- **Network Family**: Connections use the system's IPv4/IPv6 selection. To pin one family, pass a bound transport, e.g. `RootMeClient(..., transport=httpx.HTTPTransport(local_address="0.0.0.0"))` for IPv4 or `local_address="::"` for IPv6.
 - **Security**: Never commit your passwords or `.secrets/` directory. Saved sessions contain cookies and should be restricted to your user account.
 - **Documentation**:
   - [API Reference](API.md) — Exhaustive methods and types documentation.

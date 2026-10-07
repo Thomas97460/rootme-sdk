@@ -75,6 +75,7 @@ class RootMeClient:
         timeout: float = 30,
         read_retries: int = 1,
         max_retry_delay: float = 5,
+        min_request_interval: float = 2,
     ) -> None:
         """Connect from login/password or a JSON file; no credentials means anonymous."""
         supplied = any(value is not None for value in (username, password, credentials_file))
@@ -85,6 +86,7 @@ class RootMeClient:
             timeout=timeout,
             read_retries=read_retries,
             max_retry_delay=max_retry_delay,
+            min_request_interval=min_request_interval,
         )
         self._cached_solved_ids: set[int] | None = None
         if supplied:

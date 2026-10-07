@@ -24,8 +24,11 @@ an ID must first resolve through the authenticated API. Anonymous reads may stil
 open a graphical browser for JavaScript verification.
 
 The constructor's optional keyword arguments are `timeout=30` (HTTP seconds),
-`read_retries=1`, `max_retry_delay=5`, and `transport` (an HTTPX transport, useful
-for offline tests). Managed browser login has a separate 180-second timeout;
+`read_retries=1`, `max_retry_delay=5`, `min_request_interval=2` (minimum seconds
+between the starts of consecutive platform requests, including retries and downloads;
+`0` disables pacing) and `transport` (an HTTPX transport, useful for offline tests or
+to bind a local address such as `httpx.HTTPTransport(local_address="::")`). The
+default transport leaves IPv4/IPv6 selection to the system. Managed browser login has a separate 180-second timeout;
 `login(..., timeout=180)` can change it. Read retries are bounded and respect
 eligible waiting intervals; ambiguous authentication attempts and writes are never replayed.
 During login, the SDK waits only for the form's initialization and the username's
@@ -111,7 +114,7 @@ raises `ValueError`; local destination/session file failures can raise `OSError`
 | `AuthenticationRequiredError` | Login required or rejected; `reason` is `missing`, `expired` or `rejected` |
 | `BrowserUnavailableError` | Missing graphical display or browser startup failure |
 | `HumanInterventionRequiredError` | Platform verification unresolved; includes `url` |
-| `RateLimitedError` | Platform rate limit; `retry_after` can be absent |
+| `RateLimitedError` | Platform rate limit; `retry_after` (seconds) can be absent and is also stated in the message |
 | `PermissionDeniedError` | Access denied |
 | `NotFoundError` | Requested resource absent |
 | `NetworkError` | Network operation failed |

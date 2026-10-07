@@ -68,6 +68,14 @@ observed success/error and SPIP feedback classes. Explicit English/French
 already-solved messages are recognized. HTTP 429 is blocked; ambiguous failures
 and unknown feedback remain indeterminate. Writes are never automatically replayed.
 
+Root-Me answers request bursts with HTTP 429, sometimes without `Retry-After` and
+for several minutes, including on profile and search reads. The client therefore
+spaces requests by 2 seconds by default. A field report described persistent 429
+responses on one network's IPv4 egress while IPv6 succeeded, so the SDK no longer
+binds connections to IPv4. On 2026-10-07, anonymous website and API reads succeeded
+over both IPv4 and IPv6, and the default transport selected IPv6 where available.
+Changing address family to escape a rate limit is not attempted automatically.
+
 Challenge files are the page links served by `static.root-me.org`. On 2026-10-06,
 challenges sampled in every category placed their downloadable material there,
 mostly behind the statement's *Download the challenge* button and once as a plain
