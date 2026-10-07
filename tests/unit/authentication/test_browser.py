@@ -427,6 +427,17 @@ def test_browser_verification_timeout(engine: MagicMock) -> None:
     with pytest.raises(HumanInterventionRequiredError):
         adapter.authenticate("Example", "synthetic-password")
     adapter.page.locator.return_value.click.assert_not_called()
+    assert adapter.page.wait_for_function.call_args.kwargs["timeout"] == 1000
+    adapter.close()
+
+
+def test_unfinished_verification_is_capped_and_stopped(engine: MagicMock) -> None:
+    adapter = BrowserSession(Session())
+    adapter.page.wait_for_function.side_effect = PlaywrightTimeoutError("private")
+    with pytest.raises(HumanInterventionRequiredError):
+        adapter.request(httpx.Request("GET", WEB))
+    assert adapter.page.wait_for_function.call_args.kwargs["timeout"] == 10_000
+    assert adapter.page.goto.call_args_list[-1].args == ("about:blank",)
     adapter.close()
 
 
