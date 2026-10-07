@@ -23,6 +23,13 @@ source. An anonymous `RootMeClient()` can read website challenge URLs and catego
 an ID must first resolve through the authenticated API. Anonymous reads may still
 open a graphical browser for JavaScript verification.
 
+`session_file=".secrets/session.json"` adds a reusable session to supplied credentials.
+The client first loads that file and checks it with one profile read. Only a missing,
+invalid or locally expired file, or an `AuthenticationRequiredError` from that check,
+starts a password login; rate limits, network failures and other errors propagate
+without logging in. The file is written after that login and when the client closes
+with a valid session, and `logout()` deletes it. Its parent directory must exist.
+
 The constructor's optional keyword arguments are `timeout=30` (HTTP seconds),
 `read_retries=1`, `max_retry_delay=5`, `min_request_interval=2` (minimum seconds
 between the starts of consecutive platform requests, including retries and downloads;

@@ -6,6 +6,7 @@ reads reuse the login cookie. Website JavaScript gates can affect public reads.
 | Client method | Purpose | Access | Evidence |
 | --- | --- | --- | --- |
 | `RootMeClient(login, password)` / `RootMeClient(credentials_file=...)` | Connect from credentials and manage browser/session internally | Existing account | Both modes observed without human input, including preferences and challenge reads |
+| `RootMeClient(..., session_file=...)` | Reuse a saved session and log in only when it is missing or rejected | Existing account | Missing and invalid API sessions answer HTTP 401 (observed 2026-10-07); reuse flow tested offline |
 | `login` | Connect/reconnect an existing client, with automatic JS assistance | Existing account | Same managed authentication flow |
 | `logout` | Server logout and local credential erasure | Session for server logout | Route observed; behavior tested offline |
 | `get_challenge(id)` | Complete website details through the API-provided URL | Login session and website access | API links and challenge pages observed |

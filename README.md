@@ -108,14 +108,19 @@ with RootMeClient("your-username", "your-password") as client:
 ### 5. Reuse a session
 
 ```python
-from rootme_sdk import RootMeClient, Session
+from rootme_sdk import RootMeClient
 
-with RootMeClient("your-username", "your-password") as client:
-    client.session.save("session.json")
-
-with RootMeClient(session=Session.load("session.json")) as client:
+with RootMeClient(
+    credentials_file=".secrets/credentials.json", session_file=".secrets/session.json"
+) as client:
     print(client.get_challenge(41).title)
 ```
+
+`session_file` reuses the saved session while Root-Me still accepts it and logs in
+with the credentials only when the file is missing, invalid, expired or rejected.
+Rate limits and network failures are raised instead of triggering a new login. The
+file is updated after login and on close, and `logout()` deletes it. Prefer this over
+logging in on every run.
 
 Credentials can also come from a JSON file `{"login": "...", "password": "..."}`:
 `RootMeClient(credentials_file="credentials.json")`.
@@ -123,7 +128,7 @@ Credentials can also come from a JSON file `{"login": "...", "password": "..."}`
 ## Important Notes
 
 - **Graphical Display**: Password login uses an isolated, headed Chromium browser to handle Root-Me's native login flow. A working graphical display is required (`DISPLAY` on Linux).
-- **Rate Limits**: Root-Me throttles bursts with HTTP 429, sometimes for several minutes. The client waits at least 2 seconds between requests by default (`min_request_interval=2`); keep this pace across clients and processes sharing one network address. `RateLimitedError.retry_after` gives the server's waiting interval when one is sent, and `submit_flag` returns `SubmissionStatus.BLOCKED` instead of raising.
+- **Rate Limits**: Root-Me throttles bursts with HTTP 429, sometimes for several minutes. The client waits at least 2 seconds between requests by default (`min_request_interval=2`); keep this pace across clients and processes sharing one network address. `RateLimitedError.retry_after` gives the server's waiting interval when one is sent, and `submit_flag` returns `SubmissionStatus.BLOCKED` instead of raising. Wait at least that long before calling again; do not wrap SDK calls in automatic retry loops, and never resubmit an answer automatically.
 - **Network Family**: Connections use the system's IPv4/IPv6 selection. To pin one family, pass a bound transport, e.g. `RootMeClient(..., transport=httpx.HTTPTransport(local_address="0.0.0.0"))` for IPv4 or `local_address="::"` for IPv6.
 - **Security**: Never commit your passwords or `.secrets/` directory. Saved sessions contain cookies and should be restricted to your user account.
 - **Documentation**:
