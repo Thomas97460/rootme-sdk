@@ -11,7 +11,9 @@ from rootme_sdk import (
     Challenge,
     Difficulty,
     HumanInterventionRequiredError,
+    NetworkError,
     NotFoundError,
+    RateLimitedError,
     Resource,
     RootMeClient,
     Session,
@@ -848,3 +850,122 @@ def test_successful_submission_invalidates_progression_without_extra_reads(
         assert client._cached_solved_ids is None
     assert [request.method for request in calls] == ["GET", "GET", "POST"]
     assert all(request.url.host == "www.root-me.org" for request in calls)
+
+
+def _saved(path: Path, value: str, expires: float | None = None) -> Path:
+    Session(cookies=(SessionCookie("spip_session", value, expires=expires),)).save(path)
+    return path
+
+
+def _browser_login(monkeypatch: pytest.MonkeyPatch, value: str = "2_new") -> MagicMock:
+    factory = MagicMock()
+
+    def authenticate(session: Session) -> Session:
+        session.cookies = (SessionCookie("spip_session", value),)
+        return session
+
+    factory.side_effect = lambda session, **kw: MagicMock(
+        authenticate=lambda username, password: authenticate(session),
+        request=lambda request: httpx.Response(200, request=request),
+    )
+    monkeypatch.setattr("rootme_sdk.authentication.browser.BrowserSession", factory)
+    return factory
+
+
+def test_session_file_requires_credentials(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="session file"):
+        RootMeClient(session_file=tmp_path / "session.json")
+
+
+def test_accepted_session_file_avoids_login(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    factory = _browser_login(monkeypatch)
+    path = _saved(tmp_path / "session.json", "1_saved")
+    calls: list[httpx.Request] = []
+
+    def server(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"nom": "Example", "id_auteur": "1"})
+
+    transport = httpx.MockTransport(server)
+    with RootMeClient("Example", "synthetic-password", session_file=path, transport=transport) as c:
+        assert c.session.spip_session == "1_saved"
+        c.session.cookies = (SessionCookie("spip_session", "1_renewed"),)
+    factory.assert_not_called()
+    assert [r.url.path for r in calls] == ["/auteurs/1"]
+    assert calls[0].headers["cookie"] == "spip_session=1_saved"
+    assert Session.load(path).spip_session == "1_renewed"
+
+
+@pytest.mark.parametrize("state", ["missing", "corrupted", "expired", "rejected"])
+def test_unusable_session_file_logs_in_and_saves(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: str
+) -> None:
+    factory = _browser_login(monkeypatch)
+    path = tmp_path / "session.json"
+    if state == "corrupted":
+        path.write_text("{}", encoding="utf-8")
+    elif state != "missing":
+        _saved(path, "1_saved", expires=0 if state == "expired" else None)
+    server = MagicMock(return_value=httpx.Response(401))
+    transport = httpx.MockTransport(server)
+    with RootMeClient("Example", "synthetic-password", session_file=path, transport=transport):
+        factory.assert_called_once()
+        assert Session.load(path).spip_session == "2_new"
+    assert server.call_count == (1 if state == "rejected" else 0)
+
+
+@pytest.mark.parametrize(
+    "response,error",
+    [
+        (httpx.Response(429, headers={"retry-after": "60"}), RateLimitedError),
+        (httpx.Response(500), UnexpectedResponseError),
+    ],
+)
+def test_inconclusive_session_check_never_starts_a_login(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    response: httpx.Response,
+    error: type[Exception],
+) -> None:
+    factory = _browser_login(monkeypatch)
+    path = _saved(tmp_path / "session.json", "1_saved")
+    transport = httpx.MockTransport(MagicMock(return_value=response))
+    with pytest.raises(error):
+        RootMeClient("Example", "synthetic-password", session_file=path, transport=transport)
+    factory.assert_not_called()
+    assert Session.load(path).spip_session == "1_saved"
+
+
+def test_network_failure_during_session_check_keeps_the_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    factory = _browser_login(monkeypatch)
+    path = _saved(tmp_path / "session.json", "1_saved")
+
+    def server(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("synthetic", request=request)
+
+    with pytest.raises(NetworkError):
+        RootMeClient(
+            "Example",
+            "synthetic-password",
+            session_file=path,
+            transport=httpx.MockTransport(server),
+        )
+    factory.assert_not_called()
+    assert path.exists()
+
+
+def test_logout_removes_the_session_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _browser_login(monkeypatch)
+    path = tmp_path / "session.json"
+    transport = httpx.MockTransport(MagicMock())
+    with RootMeClient(
+        "Example", "synthetic-password", session_file=path, transport=transport
+    ) as client:
+        assert path.exists()
+        client.logout()
+        assert not path.exists()
+    assert not path.exists()

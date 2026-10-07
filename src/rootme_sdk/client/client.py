@@ -69,6 +69,7 @@ class RootMeClient:
         password: str | None = None,
         *,
         credentials_file: str | Path | None = None,
+        session_file: str | Path | None = None,
         spip_session: str | None = None,
         session: Session | None = None,
         transport: httpx.BaseTransport | None = None,
@@ -77,9 +78,12 @@ class RootMeClient:
         max_retry_delay: float = 5,
         min_request_interval: float = 2,
     ) -> None:
-        """Connect from login/password or a JSON file; no credentials means anonymous."""
+        """Connect with credentials, reusing an accepted ``session_file``; none means anonymous."""
         supplied = any(value is not None for value in (username, password, credentials_file))
+        if session_file is not None and not supplied:
+            raise ValueError("A session file requires login/password or a credentials file.")
         self.session = _initial_session(session, spip_session, supplied)
+        self._session_file = None if session_file is None else Path(session_file)
         self._transport = Transport(
             self.session,
             transport=transport,
@@ -95,12 +99,41 @@ class RootMeClient:
     def _connect(
         self, username: str | None, password: str | None, credentials_file: str | Path | None
     ) -> None:
-        """Close resources if construction cannot complete authentication."""
+        """Reuse an accepted saved session or log in; close resources on failure."""
         try:
-            self.login(username, password, credentials_file=credentials_file)
+            credentials = Credentials.load(username, password, credentials_file)
+            if not self._resume():
+                self.login(credentials.username, credentials.password)
+                self._save_session()
         except Exception:
             self.close()
             raise
+
+    def _resume(self) -> bool:
+        """Adopt the saved session only while the platform still accepts it.
+
+        A missing or invalid file and an authentication rejection call for a new login.
+        Rate limits, network failures and verification gates propagate instead, so a
+        transient error never starts a browser login.
+        """
+        if self._session_file is None:
+            return False
+        try:
+            saved = Session.load(self._session_file)
+        except (FileNotFoundError, UnexpectedResponseError):
+            return False
+        self.session.cookies, self.session.user_agent = saved.cookies, saved.user_agent
+        try:
+            self.get_profile()
+        except AuthenticationRequiredError:
+            self.session.cookies = ()
+            return False
+        return True
+
+    def _save_session(self) -> None:
+        """Persist the current login, including renewed cookies, to the session file."""
+        if self._session_file is not None and self.session.spip_session:
+            self.session.save(self._session_file)
 
     def __enter__(self) -> Self:
         """Enter the owned resource scope."""
@@ -116,8 +149,11 @@ class RootMeClient:
         self.close()
 
     def close(self) -> None:
-        """Release all owned network and browser resources."""
-        self._transport.close()
+        """Save the session file when configured, then release network and browser resources."""
+        try:
+            self._save_session()
+        finally:
+            self._transport.close()
 
     def login(
         self,
@@ -174,6 +210,8 @@ class RootMeClient:
                 self._transport.request("GET", f"{WEB_URL}/?action=logout", mutation=True)
         finally:
             self.session.cookies = ()
+            if self._session_file is not None:
+                self._session_file.unlink(missing_ok=True)
             self._close_browser()
             self._cached_solved_ids = None
 
